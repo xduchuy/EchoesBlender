@@ -52,16 +52,16 @@ def _build_cuirass(segs: int) -> list:
         widths = []
         for k in range(7):
             t = k / 6.0 * 2.0 - 1.0
-            x = 0.058 + t * 0.042
-            z = 1.295 + diag * t * 0.042
+            x = 0.048 + t * 0.042
+            z = 1.280 + diag * t * 0.044
             y_surf = -0.010 - 0.145 * math.sqrt(max(0.15, 1.0 - (x / 0.210) ** 2)) - 0.016 * max(0.0, 1.0 - abs(x) / 0.08)
-            pts.append(Vector((x, y_surf - 0.0005, z)))
+            pts.append(Vector((x, y_surf - 0.0075, z)))
             widths.append(0.0075 + 0.0055 * (abs(t) ** 1.4))
         r_pts = []
         for idx, p in enumerate(pts):
             tan = (pts[min(len(pts)-1, idx+1)] - pts[max(0, idx-1)]).normalized()
             side = tan.cross(Vector((0.0, -1.0, 0.0))).normalized() * widths[idx]
-            fwd = Vector((0.0, -0.0022, 0.0))
+            fwd = Vector((0.0, -0.0038, 0.0))
             r_pts.append([p - side, p - side + fwd, p + side + fwd, p + side])
         config.loft_rings(bm_h, r_pts, close_cap_start=True, close_cap_end=True)
 
@@ -140,56 +140,99 @@ def _orient_from_segment(p0: Vector, p1: Vector, fwd_hint: Vector = Vector((0.0,
     return mat
 
 
+def _build_joint_cop_plate(name: str, collection: str, center: Vector,
+                           fwd_dir: Vector, side_sign: float,
+                           radius: float = 0.056, height: float = 0.088,
+                           wing_extend: float = 0.030, mat_name: str = "MAT_Steel_Worn") -> bpy.types.Object:
+    """Build articulated Gothic elbow couter or knee poleyn shield with sculpted wing fin & median ridge."""
+    bm = bmesh.new()
+    rows_u, rows_v = 9, 13
+    fwd = fwd_dir.normalized()
+    up = Vector((0.0, 0.0, 1.0))
+    out_side = Vector((side_sign, 0.0, 0.0))
+    # Ensure orthogonal tangent basis around joint exterior
+    side_axis = up.cross(fwd).normalized()
+    if side_axis.dot(out_side) < 0.0:
+        side_axis = -side_axis
+
+    grid = []
+    for iu in range(rows_u):
+        tu = iu / (rows_u - 1)  # 0 top lame -> 1 bottom lame
+        pitch = (tu - 0.5) * 1.65
+        row = []
+        for iv in range(rows_v):
+            tv = iv / (rows_v - 1) * 2.0 - 1.0  # -1 inner -> +1 outer wing
+            az = tv * 1.42
+            # Sculpted almond-shaped shell pinching slightly inward at upper/lower articulated borders
+            pinch_u = 1.0 - 0.16 * (abs(tu - 0.5) * 2.0) ** 1.6
+            wing = wing_extend * max(0.0, tv - 0.18) ** 1.2 * math.sin(tu * math.pi)
+            keel = 0.011 * max(0.0, 1.0 - abs(tv) * 3.0) * math.sin(tu * math.pi)
+            local_f = (math.cos(pitch) * math.cos(az) * radius * pinch_u + keel)
+            local_s = (math.sin(az) * (radius * 1.04 * pinch_u) + wing)
+            local_z = -math.sin(pitch) * (height * 0.52)
+            pt = center + fwd * local_f + side_axis * local_s + up * local_z
+            row.append(bm.verts.new(pt))
+        grid.append(row)
+
+    for iu in range(rows_u - 1):
+        for iv in range(rows_v - 1):
+            bm.faces.new((grid[iu][iv], grid[iu][iv + 1], grid[iu + 1][iv + 1], grid[iu + 1][iv]))
+
+    obj = config.finalize_bmesh(bm, name, collection, mat_name=mat_name, smooth=True)
+    config.add_solidify(obj, thickness=0.0038, offset=1.0)
+    return obj
+
+
 def _build_left_hero_arm() -> list:
-    """Build large asymmetric multi-plate Left (+X) pauldron with haute-piece brass rim,
-    4 shoulder lames, winged couter, and vambrace with brass wrist band."""
+    """Build large asymmetric multi-plate Left (+X) pauldron seating flush over shoulder lames,
+    4 shoulder lames, winged gothic couter, and vambrace with brass wrist band."""
     objs = []
     j = config.JOINTS
     sh = j["shoulder_L"]
     el = j["elbow_L"]
     wr = j["wrist_L"]
 
-    # 1. Hero Left Pauldron Dome (broad rounded deltoid cup hugging close to cuirass & shoulder lames)
+    # 1. Hero Left Pauldron Dome seated tightly onto deltoid & cuirass collar (zero floating gap)
     bm = bmesh.new()
     bm_brass = bmesh.new()
     rivet_pts = []
     rows_u = 12
     rows_v = 16
     grid = []
-    dome_center = sh + Vector((-0.022, 0.0, -0.032))
+    dome_center = sh + Vector((-0.036, -0.004, -0.034))
     for iu in range(rows_u):
         tu = iu / (rows_u - 1)  # 0 inner collar haute-piece near cuirass -> 1 lower outer rim over first lame
-        polar = -0.24 + tu * 2.22
+        polar = -0.08 + tu * 1.98
         row = []
         for iv in range(rows_v):
             tv = iv / (rows_v - 1) * 2.0 - 1.0  # -1 front -> +1 rear
-            az = tv * 1.62
-            haute = 0.026 * max(0.0, 1.0 - tu * 4.5) * max(0.25, math.cos(tv * 0.95))
-            taper_in = 1.0 - 0.08 * max(0.0, tu - 0.60) / 0.40
-            rad_x = 0.132 * taper_in * (0.95 + 0.06 * math.sin(tu * math.pi))
-            rad_y = (0.128 if tu > 0.25 else 0.112) * taper_in
-            rad_z = 0.120
+            az = tv * 1.56
+            haute = 0.018 * max(0.0, 1.0 - tu * 4.2) * max(0.25, math.cos(tv * 0.95))
+            skirt_flare = 1.0 + 0.12 * max(0.0, tu - 0.55) / 0.45
+            rad_x = 0.130 * skirt_flare
+            rad_y = (0.122 if tu > 0.20 else 0.106) * skirt_flare
+            rad_z = 0.094
             local_x = math.sin(polar) * math.cos(az * 0.38) * rad_x
             local_y = math.sin(az) * rad_y
             local_z = math.cos(polar) * rad_z + haute
-            ridge = 0.008 * max(0.0, 1.0 - abs(tv) * 3.2) * math.sin(tu * math.pi)
+            ridge = 0.007 * max(0.0, 1.0 - abs(tv) * 3.2) * math.sin(tu * math.pi)
             pt = dome_center + Vector((local_x + ridge, local_y, local_z))
             row.append(bm.verts.new(pt))
             if iu == rows_u - 1 and iv % 2 == 1:
-                rivet_pts.append((pt + Vector((0.004, 0.0, 0.002)), Vector((1.0, math.sin(az) * 0.5, 0.05)).normalized()))
+                rivet_pts.append((pt + Vector((0.003, 0.0, 0.002)), Vector((1.0, math.sin(az) * 0.5, 0.05)).normalized()))
         grid.append(row)
 
     for iu in range(rows_u - 1):
         for iv in range(rows_v - 1):
             bm.faces.new((grid[iu][iv], grid[iu][iv+1], grid[iu+1][iv+1], grid[iu+1][iv]))
 
-    # Aged brass edging & scroll ridge flush along pauldron borders
-    top_edge = [grid[0][iv].co.copy() + Vector((0.001, 0.0, 0.003)) for iv in range(rows_v)]
-    bot_edge = [grid[-1][iv].co.copy() + Vector((0.003, 0.0, -0.001)) for iv in range(rows_v)]
-    mid_scroll = [grid[rows_u - 3][iv].co.copy() + Vector((0.004, 0.0, 0.0015)) for iv in range(2, rows_v - 2)]
-    config.tube_along_points(bm_brass, top_edge, radii=0.0052, radial_segs=8)
-    config.tube_along_points(bm_brass, bot_edge, radii=0.0045, radial_segs=8)
-    config.tube_along_points(bm_brass, mid_scroll, radii=0.0032, radial_segs=6)
+    # Aged brass edging flush along pauldron borders
+    top_edge = [grid[0][iv].co.copy() + Vector((0.001, 0.0, 0.002)) for iv in range(rows_v)]
+    bot_edge = [grid[-1][iv].co.copy() + Vector((0.002, 0.0, -0.001)) for iv in range(rows_v)]
+    mid_scroll = [grid[rows_u - 3][iv].co.copy() + Vector((0.003, 0.0, 0.001)) for iv in range(2, rows_v - 2)]
+    config.tube_along_points(bm_brass, top_edge, radii=0.0046, radial_segs=8)
+    config.tube_along_points(bm_brass, bot_edge, radii=0.0040, radial_segs=8)
+    config.tube_along_points(bm_brass, mid_scroll, radii=0.0028, radial_segs=6)
 
     pauldron = config.finalize_bmesh(bm, "Armor_Pauldron_L", "06_ARM_ARMOR", mat_name="MAT_Steel_Worn", smooth=True)
     config.add_solidify(pauldron, thickness=0.0045, offset=1.0)
@@ -199,13 +242,13 @@ def _build_left_hero_arm() -> list:
     # 2. Four overlapping articulated shoulder/bicep lames tucking flush UP inside pauldron skirt
     bm_lames = bmesh.new()
     for l_idx in range(4):
-        t0 = 0.01 + l_idx * 0.138
-        t1 = t0 + 0.120
+        t0 = -0.02 + l_idx * 0.132
+        t1 = t0 + 0.118
         c0 = sh.lerp(el, t0)
         c1 = sh.lerp(el, t1)
         bm_sub_grid = []
         for iz, c_pt in enumerate((c0, c1)):
-            rad = 0.084 - l_idx * 0.005 - iz * 0.003
+            rad = 0.080 - l_idx * 0.005 - iz * 0.003
             row = []
             for iv in range(11):
                 tv = iv / 10.0 * 2.0 - 1.0
@@ -224,20 +267,18 @@ def _build_left_hero_arm() -> list:
     objs.append(lames_obj)
     objs.append(config.add_rivet_strip("Armor_Rivets_Arm_L", "06_ARM_ARMOR", rivet_pts, radius=0.0038, mat_name="MAT_Brass_Aged"))
 
-    # 3. Winged elbow couter (Couter_L)
-    bm_c = bmesh.new()
-    res = bmesh.ops.create_icosphere(bm_c, subdivisions=2, radius=0.068)
-    for v in res["verts"]:
-        # Flatten inner half, pull outer elbow wing ridge out (+X/+Y)
-        if v.co.x < -0.015:
-            v.co.x *= 0.25
-        else:
-            v.co.x *= 1.18
-        v.co.z *= 0.82
-        v.co.y += 0.018 * max(0.0, v.co.x / 0.068)
-        v.co += el + Vector((0.014, 0.012, 0.0))
-    couter_l = config.finalize_bmesh(bm_c, "Armor_Couter_L", "06_ARM_ARMOR", mat_name="MAT_Steel_Worn", smooth=True)
-    objs.append(couter_l)
+    # 3. Winged Gothic elbow couter (Couter_L)
+    objs.append(_build_joint_cop_plate(
+        "Armor_Couter_L",
+        "06_ARM_ARMOR",
+        center=el + Vector((0.010, 0.010, 0.0)),
+        fwd_dir=Vector((0.68, 0.72, 0.0)),
+        side_sign=1.0,
+        radius=0.056,
+        height=0.094,
+        wing_extend=0.032,
+        mat_name="MAT_Steel_Worn",
+    ))
 
     # 4. Forearm Vambrace + Brass Wrist Band (Vambrace_L)
     arm_len = (el - wr).length
@@ -320,17 +361,18 @@ def _build_right_sword_arm() -> list:
     config.add_solidify(lames_r, thickness=0.0038, offset=1.0)
     objs.append(lames_r)
 
-    # Right elbow couter
-    bm_c = bmesh.new()
-    res = bmesh.ops.create_icosphere(bm_c, subdivisions=2, radius=0.060)
-    for v in res["verts"]:
-        if v.co.x > 0.012:
-            v.co.x *= 0.25
-        else:
-            v.co.x *= 1.15
-        v.co.z *= 0.85
-        v.co += el + Vector((-0.012, 0.008, 0.0))
-    objs.append(config.finalize_bmesh(bm_c, "Armor_Couter_R", "06_ARM_ARMOR", mat_name="MAT_Steel_Worn", smooth=True))
+    # Right elbow couter (articulated winged plate)
+    objs.append(_build_joint_cop_plate(
+        "Armor_Couter_R",
+        "06_ARM_ARMOR",
+        center=el + Vector((-0.008, 0.008, 0.0)),
+        fwd_dir=Vector((-0.68, 0.72, 0.0)),
+        side_sign=-1.0,
+        radius=0.052,
+        height=0.088,
+        wing_extend=0.026,
+        mat_name="MAT_Steel_Worn",
+    ))
 
     # Right vambrace along elbow->wrist (with wrist brass accent strip)
     arm_len = (el - wr).length
@@ -443,19 +485,18 @@ def _build_leg_armor(segs: int) -> list:
         config.add_solidify(cuisse, thickness=0.004, offset=1.0)
         objs.append(cuisse)
 
-        # 2. Knee Poleyn (sleek articulated fluted cup tucked closely to joint under tabard)
-        bm_k = bmesh.new()
-        res = bmesh.ops.create_icosphere(bm_k, subdivisions=2, radius=0.056)
-        for v in res["verts"]:
-            if v.co.y > 0.008:
-                v.co.y *= 0.25
-            v.co.y -= 0.016 * max(0.0, 1.0 - abs(v.co.x) / 0.04)
-            v.co.z *= 1.16
-            if s * v.co.x > 0.025:
-                v.co.x += s * 0.018
-                v.co.y += 0.010
-            v.co += knee + Vector((0.0, -0.016, 0.0))
-        objs.append(config.finalize_bmesh(bm_k, f"Armor_Poleyn_{side}", "11_LEG_ARMOR", mat_name="MAT_Steel_Oxidized", smooth=True))
+        # 2. Knee Poleyn (articulated fluted Gothic knee cop with outer wing fin)
+        objs.append(_build_joint_cop_plate(
+            f"Armor_Poleyn_{side}",
+            "11_LEG_ARMOR",
+            center=knee + Vector((0.0, -0.012, 0.0)),
+            fwd_dir=Vector((s * 0.14, -0.99, 0.0)),
+            side_sign=s,
+            radius=0.054,
+            height=0.104,
+            wing_extend=0.024,
+            mat_name="MAT_Steel_Oxidized",
+        ))
 
         # 3. Front Steel Greave flaring gently OVER boot ankle cuff + Rear Leather Calf Guard & Straps
         sh_len = (knee - ankle).length

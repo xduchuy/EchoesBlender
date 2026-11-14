@@ -158,18 +158,18 @@ def _build_belts_and_pouches() -> list:
     # 4. Diagonal Chest/Back Baldric Suspension Strap holding the Back Scabbard
     # Runs cleanly from upper-right shoulder (-0.19, Z=1.36) diagonally across torso/cape to lower-left hip (+0.23, Z=0.98)
     bm_bal = bmesh.new()
-    # Back pass OVER the cape contacting Scabbard_Back, then wraps lower across ribcage leaving upper chest cross visible
+    # Back pass sits strictly OUTSIDE Cape_Back_Cloak (+Y = 0.235..0.262) so cape never clips through leather!
     bal_loop = [
-        Vector((-0.195, 0.210, 1.38)),   # Back right shoulder top (meets scabbard locket)
-        Vector((-0.055, 0.205, 1.24)),   # Mid back over cape
-        Vector((0.095, 0.195, 1.09)),    # Lower left back
-        Vector((0.200, 0.110, 0.99)),    # Left hip rear (meets lower scabbard mount)
-        Vector((0.188, -0.055, 1.01)),   # Left waist front
-        Vector((0.115, -0.148, 1.09)),   # Lower-left rib curve
-        Vector((0.000, -0.172, 1.18)),   # Across lower chest/ribs leaving upper heraldic cross clear
-        Vector((-0.115, -0.152, 1.30)),  # Up right rib toward shoulder
-        Vector((-0.195, -0.055, 1.42)),  # Right collarbone crest
-        Vector((-0.205, 0.085, 1.44)),   # Over top right shoulder under scarf
+        Vector((-0.205, 0.252, 1.385)),  # Back right shoulder top (meets scabbard locket)
+        Vector((-0.055, 0.262, 1.245)),  # Mid back cleanly outside cape drape
+        Vector((0.105, 0.250, 1.095)),   # Lower left back cleanly outside cape
+        Vector((0.228, 0.145, 0.995)),   # Left hip rear (meets lower scabbard mount)
+        Vector((0.194, -0.058, 1.010)),  # Left waist front
+        Vector((0.120, -0.155, 1.090)),  # Lower-left rib curve
+        Vector((0.000, -0.180, 1.185)),  # Across lower chest/ribs leaving upper heraldic cross clear
+        Vector((-0.120, -0.158, 1.300)), # Up right rib toward shoulder
+        Vector((-0.198, -0.058, 1.425)), # Right collarbone crest
+        Vector((-0.210, 0.095, 1.445)),  # Over top right shoulder under scarf
     ]
     rings_bal = []
     n_pts = len(bal_loop)

@@ -52,6 +52,14 @@ export class KnightCharacter {
     this.currentSpeed = 0;
 
     this.bones = new Map();
+    this.mixer = null;
+    this.actions = new Map();
+    this.activeActionName = null;
+    this.swordReadyTimer = 0;
+    this.landingTimer = 0;
+    this._prevSwordInput = false;
+    this.wadeRipple = { x: 0, z: 42.5, strength: 0 };
+
     this.materialLib = createKnightMaterialLibrary();
     this.lanternLight = null;
     this.lanternBaseIntensity = 2.4;
@@ -116,11 +124,77 @@ export class KnightCharacter {
 
     this.root.updateMatrixWorld(true);
     this._cacheBones();
+    this._initAnimations(gltf);
     this._attachLanternLight(lanternAnchor, lanternChamberCenter);
 
     this.root.position.copy(this.position);
     this.root.rotation.y = this.yaw;
     this.ready = true;
+  }
+
+  _initAnimations(gltf) {
+    if (this.mixer) {
+      this.mixer.stopAllAction();
+      this.mixer.uncacheRoot(this.model);
+      this.mixer = null;
+    }
+    this.actions.clear();
+    this.activeActionName = null;
+
+    const clips = Array.isArray(gltf?.animations) ? gltf.animations : [];
+    if (clips.length === 0) return;
+
+    this.mixer = new THREE.AnimationMixer(this.model);
+    const oneShotClips = new Set(["Jump_Start", "Land", "Sword_Ready"]);
+
+    for (const clip of clips) {
+      const action = this.mixer.clipAction(clip);
+      if (oneShotClips.has(clip.name)) {
+        action.setLoop(THREE.LoopOnce, 1);
+        action.clampWhenFinished = true;
+      } else {
+        action.setLoop(THREE.LoopRepeat, Infinity);
+      }
+      this.actions.set(clip.name, action);
+    }
+
+    this.mixer.addEventListener("finished", (e) => {
+      const clipName = e.action?.getClip()?.name;
+      if (clipName === "Jump_Start" && !this.isGrounded) {
+        this._switchAction("Airborne", 0.12);
+      } else if (clipName === "Land") {
+        this.landingTimer = 0;
+      } else if (clipName === "Sword_Ready") {
+        this.swordReadyTimer = 0;
+      }
+    });
+
+    if (this.actions.has("Idle")) {
+      const idle = this.actions.get("Idle");
+      idle.reset().play();
+      this.activeActionName = "Idle";
+    }
+  }
+
+  _switchAction(name, fadeSec = 0.2, timeScale = 1.0) {
+    if (!this.mixer || !this.actions.has(name)) return;
+    const next = this.actions.get(name);
+    if (this.activeActionName === name) {
+      next.setEffectiveTimeScale(timeScale);
+      return;
+    }
+
+    const prev = this.activeActionName ? this.actions.get(this.activeActionName) : null;
+    next.reset();
+    next.enabled = true;
+    next.setEffectiveTimeScale(timeScale);
+    next.setEffectiveWeight(1.0);
+    next.play();
+
+    if (prev && prev !== next) {
+      next.crossFadeFrom(prev, fadeSec, false);
+    }
+    this.activeActionName = name;
   }
 
   _cacheBones() {
@@ -378,12 +452,12 @@ export class KnightCharacter {
     let wantsJump = false;
 
     if (controls && controls.active) {
-      const fwdInput = (controls.forward ? 1 : 0) - (controls.backward ? 1 : 0);
-      const sideInput = (controls.right ? 1 : 0) - (controls.left ? 1 : 0);
+      const fwdInput = Number(controls.forward || 0) - Number(controls.backward || 0);
+      const sideInput = Number(controls.right || 0) - Number(controls.left || 0);
       isSprinting = Boolean(controls.sprint);
       wantsJump = Boolean(controls.jump);
 
-      if (fwdInput !== 0 || sideInput !== 0) {
+      if (Math.abs(fwdInput) > 0.01 || Math.abs(sideInput) > 0.01) {
         // Camera look vector in XZ plane
         const camFwdX = Math.sin(controls.cameraYaw);
         const camFwdZ = Math.cos(controls.cameraYaw);
@@ -400,6 +474,8 @@ export class KnightCharacter {
       }
     }
 
+    const wasGrounded = this.isGrounded;
+    const prevYaw = this.yaw;
     const hasMove = Math.hypot(moveX, moveZ) > 0.05;
     const wadeFactor = this.isWading ? 0.8 : 1.0;
     const targetSpeed = hasMove ? (isSprinting ? 4.8 : 2.35) * wadeFactor : 0;
@@ -428,6 +504,8 @@ export class KnightCharacter {
     if (wantsJump && this.isGrounded) {
       this.velocityY = 4.55;
       this.isGrounded = false;
+      this.swordReadyTimer = 0;
+      this.landingTimer = 0;
     }
 
     if (!this.isGrounded || this.position.y > floorY + 0.04) {
@@ -463,8 +541,74 @@ export class KnightCharacter {
       this.walkPhase = (this.walkPhase + effSpeed * dt * 2.25) % (Math.PI * 2);
     }
 
-    this._animateBones(elapsed);
+    // Wading ripple telemetry for water shader
+    const targetWade = this.isWading
+      ? !wasGrounded && this.isGrounded
+        ? 1.0
+        : isMoving
+          ? 0.55 + 0.25 * this.sprintBlend
+          : 0.18
+      : 0.0;
+    this.wadeRipple.x = this.position.x;
+    this.wadeRipple.z = this.position.z;
+    this.wadeRipple.strength = damp(this.wadeRipple.strength, targetWade, 6, dt);
+
+    const swordPressed = Boolean(controls?.swordReady);
+    const swordJustPressed = swordPressed && !this._prevSwordInput;
+    this._prevSwordInput = swordPressed;
+
+    if (swordJustPressed && this.isGrounded) {
+      this.swordReadyTimer = 1.65;
+    } else if ((isMoving && isSprinting) || !this.isGrounded) {
+      this.swordReadyTimer = 0;
+    } else if (this.swordReadyTimer > 0) {
+      this.swordReadyTimer = Math.max(0, this.swordReadyTimer - dt);
+    }
+
+    if (!wasGrounded && this.isGrounded && this.actions.has("Land")) {
+      this.landingTimer = 0.28;
+    } else if (this.landingTimer > 0) {
+      this.landingTimer = Math.max(0, this.landingTimer - dt);
+    }
+
+    const turnRate = dt > 1e-4 ? shortestAngleDiff(prevYaw, this.yaw) / dt : 0;
+
+    if (this.mixer && this.actions.size > 0) {
+      this._updateMixer(dt, wasGrounded, effSpeed, isMoving, turnRate);
+    } else {
+      this._animateBones(elapsed);
+    }
     this._updateLanternLight(elapsed);
+  }
+
+  _updateMixer(dt, wasGrounded, effSpeed, isMoving, turnRate) {
+    if (!this.isGrounded) {
+      if (wasGrounded || (this.activeActionName !== "Jump_Start" && this.activeActionName !== "Airborne")) {
+        if (this.velocityY > 1.2 && this.actions.has("Jump_Start")) {
+          this._switchAction("Jump_Start", 0.08, 1.0);
+        } else if (this.actions.has("Airborne")) {
+          this._switchAction("Airborne", 0.14, 1.0);
+        }
+      } else if (this.activeActionName === "Jump_Start" && this.velocityY < 0.8 && this.actions.has("Airborne")) {
+        this._switchAction("Airborne", 0.16, 1.0);
+      }
+    } else if (this.landingTimer > 0 && !isMoving && this.actions.has("Land")) {
+      this._switchAction("Land", 0.08, 1.0);
+    } else if (this.swordReadyTimer > 0 && !isMoving && this.actions.has("Sword_Ready")) {
+      this._switchAction("Sword_Ready", 0.18, 1.0);
+    } else if (isMoving && effSpeed > 3.1 && this.actions.has("Run")) {
+      const rate = THREE.MathUtils.clamp(effSpeed / 4.4, 0.72, 1.38);
+      this._switchAction("Run", 0.18, rate);
+    } else if (isMoving && this.actions.has("Walk")) {
+      const rate = THREE.MathUtils.clamp(effSpeed / 1.95, 0.58, 1.42);
+      this._switchAction("Walk", 0.2, rate);
+    } else if (!isMoving && Math.abs(turnRate) > 0.65 && this.actions.has("Turn_Left") && this.actions.has("Turn_Right")) {
+      this._switchAction(turnRate > 0 ? "Turn_Left" : "Turn_Right", 0.16, 1.0);
+    } else if (this.actions.has("Idle")) {
+      this._switchAction("Idle", 0.24, 1.0);
+    }
+
+    this.mixer.update(dt);
   }
 
   _animateBones(elapsed) {

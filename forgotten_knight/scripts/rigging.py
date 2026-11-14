@@ -6,8 +6,9 @@ and clean GLB export:
 - Soft cloth garments, chainmail sleeves/skirt, underbody -> smooth inverse-distance weights
 """
 
+import math
 import bpy
-from mathutils import Vector, Matrix
+from mathutils import Vector, Matrix, Quaternion
 import config
 
 
@@ -131,6 +132,7 @@ RIGID_OBJECT_BONE_MAP = {
 
     "Lantern_Chain_Hook": "Pelvis",
     "Lantern_Frame_Housing": "Lantern_Swing",
+    "Lantern_Glass_Chamber": "Lantern_Swing",
     "Lantern_Inner_Chamber": "Lantern_Swing",
 }
 
@@ -236,7 +238,13 @@ def build_rigging() -> dict:
         if pname and pname in ebones:
             ebones[bname].parent = ebones[pname]
 
+    for bname, eb in ebones.items():
+        eb.align_roll(Vector((0.0, -1.0, 0.0)))
+
     bpy.ops.object.mode_set(mode="OBJECT")
+
+    for pb in arm_obj.pose.bones:
+        pb.rotation_mode = "QUATERNION"
 
     # Bind rigid pieces via exact single-bone vertex weights (zero pose shift, GLB compatible)
     bound_rigid = 0
@@ -268,9 +276,268 @@ def build_rigging() -> dict:
         bone_mat = arm_obj.matrix_world @ pbone.matrix @ Matrix.Translation((0.0, pbone.length, 0.0))
         wick_light.matrix_parent_inverse = bone_mat.inverted()
 
+    # Author clean multi-clip NLA skeletal animations while restoring neutral rest pose
+    anim_clips = create_knight_animations(arm_obj)
+
     return {
         "armature": arm_obj,
         "bone_count": len(specs),
         "rigid_bound": bound_rigid,
         "deform_bound": bound_deform,
+        "animations": anim_clips,
     }
+
+
+def _reset_pose(arm_obj):
+    for pb in arm_obj.pose.bones:
+        pb.rotation_mode = "QUATERNION"
+        pb.rotation_quaternion = Quaternion((1.0, 0.0, 0.0, 0.0))
+        pb.location = Vector((0.0, 0.0, 0.0))
+
+
+def _set_world_rot(arm_obj, bone_name: str, rx: float = 0.0, ry: float = 0.0, rz: float = 0.0, frame: int | None = None):
+    """Apply world-space delta Euler around (+X left, -Y fwd, +Z up) converted cleanly into bone rest space."""
+    pb = arm_obj.pose.bones.get(bone_name)
+    if pb is None:
+        return
+    pb.rotation_mode = "QUATERNION"
+    r_rest = pb.bone.matrix_local.to_3x3()
+    r_world = (
+        Matrix.Rotation(rz, 3, Vector((0.0, 0.0, 1.0)))
+        @ Matrix.Rotation(ry, 3, Vector((0.0, -1.0, 0.0)))
+        @ Matrix.Rotation(rx, 3, Vector((1.0, 0.0, 0.0)))
+    )
+    pb.rotation_quaternion = (r_rest.inverted() @ r_world @ r_rest).to_quaternion()
+    if frame is not None:
+        pb.keyframe_insert("rotation_quaternion", frame=frame)
+
+
+def _set_world_loc(arm_obj, bone_name: str, dx: float = 0.0, dy: float = 0.0, dz: float = 0.0, frame: int | None = None):
+    pb = arm_obj.pose.bones.get(bone_name)
+    if pb is None:
+        return
+    r_rest = pb.bone.matrix_local.to_3x3()
+    pb.location = r_rest.inverted() @ Vector((dx, dy, dz))
+    if frame is not None:
+        pb.keyframe_insert("location", frame=frame)
+
+
+def _push_nla_clip(arm_obj, clip_name: str, frame_start: int, builder_fn):
+    ad = arm_obj.animation_data or arm_obj.animation_data_create()
+    act = bpy.data.actions.new(clip_name)
+    _reset_pose(arm_obj)
+    ad.action = act
+    builder_fn()
+    slot = ad.action_slot
+    if slot is not None and len(act.layers) > 0 and len(act.layers[0].strips) > 0:
+        cb = act.layers[0].strips[0].channelbag(slot)
+        if cb is not None:
+            for fc in cb.fcurves:
+                for kp in fc.keyframe_points:
+                    kp.interpolation = "BEZIER"
+                    kp.handle_left_type = "AUTO_CLAMPED"
+                    kp.handle_right_type = "AUTO_CLAMPED"
+    track = ad.nla_tracks.new()
+    track.name = clip_name
+    strip = track.strips.new(clip_name, frame_start, act)
+    if slot is not None and hasattr(strip, "action_slot"):
+        strip.action_slot = slot
+    strip.use_auto_blend = False
+    ad.action = None
+    _reset_pose(arm_obj)
+
+
+def create_knight_animations(arm_obj) -> list[str]:
+    """Author 9 skeletal NLA animation clips (Idle, Walk, Run, Jump/Land, Turn, Sword_Ready) at 24fps."""
+    if bpy.context.scene:
+        bpy.context.scene.render.fps = 24
+    clips = []
+
+    def _clip_idle():
+        for f in range(0, 49, 6):
+            ph = 2.0 * math.pi * (f / 48.0)
+            b = math.sin(ph)
+            _set_world_loc(arm_obj, "Pelvis", dz=-0.004 * (0.5 - 0.5 * math.cos(ph)), frame=f)
+            _set_world_rot(arm_obj, "Spine", rx=0.012 * b, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=0.016 * b, rz=0.012 * math.sin(ph * 0.5), frame=f)
+            _set_world_rot(arm_obj, "Head", rx=0.016 * math.sin(ph), rz=0.045 * math.sin(ph), frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=0.015 * b, ry=-0.02 * b, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_R", rx=-0.012 * b, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=0.028 + 0.014 * b, ry=0.012 * math.cos(ph), frame=f)
+            _set_world_rot(arm_obj, "Cape_Mid", rx=0.035 + 0.025 * math.sin(ph - 0.7), ry=0.02 * math.cos(ph - 0.5), frame=f)
+            _set_world_rot(arm_obj, "Cape_Lower", rx=0.045 + 0.036 * math.sin(ph - 1.4), ry=0.028 * math.cos(ph - 1.0), frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", rx=0.022 * math.sin(ph), ry=0.018 * math.cos(ph), frame=f)
+
+    def _clip_walk():
+        for f in range(0, 33, 2):
+            ph = 2.0 * math.pi * (f / 32.0)
+            s = math.sin(ph)
+            c = math.cos(ph)
+            # Grounded alternating stride without hyperextension
+            thigh_l = -0.34 * s
+            thigh_r = 0.34 * s
+            shin_l = max(0.03, 0.50 * max(0.0, c) + 0.08 * max(0.0, -s))
+            shin_r = max(0.03, 0.50 * max(0.0, -c) + 0.08 * max(0.0, s))
+            foot_l = -0.22 * s - 0.14 * max(0.0, c)
+            foot_r = 0.22 * s - 0.14 * max(0.0, -c)
+            bob = -0.022 * (0.5 - 0.5 * math.cos(2.0 * ph))
+            p_yaw = 0.055 * c
+            p_roll = 0.032 * s
+            _set_world_loc(arm_obj, "Pelvis", dz=bob, frame=f)
+            _set_world_rot(arm_obj, "Pelvis", rx=0.02, ry=p_roll, rz=p_yaw, frame=f)
+            _set_world_rot(arm_obj, "Spine", rx=0.045, ry=-p_roll * 0.5, rz=-p_yaw * 0.6, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=0.040, rz=-p_yaw * 0.65, frame=f)
+            _set_world_rot(arm_obj, "Neck", rx=-0.035, rz=p_yaw * 0.45, frame=f)
+            _set_world_rot(arm_obj, "Head", rx=-0.020, rz=p_yaw * 0.40, frame=f)
+            _set_world_rot(arm_obj, "Thigh_L", rx=thigh_l, frame=f)
+            _set_world_rot(arm_obj, "Shin_L", rx=shin_l, frame=f)
+            _set_world_rot(arm_obj, "Foot_L", rx=foot_l, frame=f)
+            _set_world_rot(arm_obj, "Thigh_R", rx=thigh_r, frame=f)
+            _set_world_rot(arm_obj, "Shin_R", rx=shin_r, frame=f)
+            _set_world_rot(arm_obj, "Foot_R", rx=foot_r, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=0.28 * s, frame=f)
+            _set_world_rot(arm_obj, "Forearm_L", rx=-0.16 - 0.14 * max(0.0, -s), frame=f)
+            # Keep right arm + longsword lifted cleanly above courtyard stone slabs
+            _set_world_rot(arm_obj, "UpperArm_R", rx=-0.14 * s - 0.12, ry=0.04, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=-0.18, frame=f)
+            _set_world_rot(arm_obj, "Weapon_Main_Bone", rx=-0.10, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=0.14 + 0.04 * math.sin(ph - 0.4), ry=0.03 * s, frame=f)
+            _set_world_rot(arm_obj, "Cape_Mid", rx=0.12 + 0.07 * math.sin(ph - 1.1), ry=0.04 * c, frame=f)
+            _set_world_rot(arm_obj, "Cape_Lower", rx=0.10 + 0.09 * math.sin(ph - 1.8), ry=0.05 * s, frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", rx=0.12 * c, ry=0.08 * s, frame=f)
+
+    def _clip_run():
+        for f in range(0, 21, 2):
+            ph = 2.0 * math.pi * (f / 20.0)
+            s = math.sin(ph)
+            c = math.cos(ph)
+            thigh_l = -0.56 * s - 0.06
+            thigh_r = 0.56 * s - 0.06
+            shin_l = max(0.05, 0.92 * max(0.0, c) + 0.14)
+            shin_r = max(0.05, 0.92 * max(0.0, -c) + 0.14)
+            foot_l = -0.26 * s - 0.20 * max(0.0, c)
+            foot_r = 0.26 * s - 0.20 * max(0.0, -c)
+            bob = -0.042 * (0.5 - 0.5 * math.cos(2.0 * ph))
+            p_yaw = 0.085 * c
+            _set_world_loc(arm_obj, "Pelvis", dz=bob, frame=f)
+            _set_world_rot(arm_obj, "Pelvis", rx=0.05, ry=0.05 * s, rz=p_yaw, frame=f)
+            _set_world_rot(arm_obj, "Spine", rx=0.11, rz=-p_yaw * 0.65, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=0.10, rz=-p_yaw * 0.70, frame=f)
+            _set_world_rot(arm_obj, "Neck", rx=-0.10, rz=p_yaw * 0.5, frame=f)
+            _set_world_rot(arm_obj, "Head", rx=-0.06, rz=p_yaw * 0.4, frame=f)
+            _set_world_rot(arm_obj, "Thigh_L", rx=thigh_l, frame=f)
+            _set_world_rot(arm_obj, "Shin_L", rx=shin_l, frame=f)
+            _set_world_rot(arm_obj, "Foot_L", rx=foot_l, frame=f)
+            _set_world_rot(arm_obj, "Thigh_R", rx=thigh_r, frame=f)
+            _set_world_rot(arm_obj, "Shin_R", rx=shin_r, frame=f)
+            _set_world_rot(arm_obj, "Foot_R", rx=foot_r, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=0.46 * s, frame=f)
+            _set_world_rot(arm_obj, "Forearm_L", rx=-0.52 - 0.18 * max(0.0, -s), frame=f)
+            # Swept back combat carry clears blade tip above ground while sprinting
+            _set_world_rot(arm_obj, "UpperArm_R", rx=0.16 * s + 0.12, ry=-0.08, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=-0.34, frame=f)
+            _set_world_rot(arm_obj, "Weapon_Main_Bone", rx=0.22, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=0.26 + 0.06 * s, ry=0.05 * c, frame=f)
+            _set_world_rot(arm_obj, "Cape_Mid", rx=0.20 + 0.11 * math.sin(ph - 0.9), ry=0.07 * s, frame=f)
+            _set_world_rot(arm_obj, "Cape_Lower", rx=0.18 + 0.14 * math.sin(ph - 1.7), ry=0.09 * c, frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", rx=0.24 + 0.16 * c, ry=0.12 * s, frame=f)
+
+    def _clip_jump_start():
+        poses = [
+            (0,  0.00,  0.00,  0.04, -0.04, 0.08,  0.00,  0.00),
+            (4, -0.075, 0.16,  0.14, -0.44, 0.74, -0.26, -0.18),
+            (10, 0.035, -0.04, -0.05,  0.08, 0.08,  0.22,  0.28),
+        ]
+        for f, dz, chest_rx, sp_rx, th_rx, sh_rx, ft_rx, cape_rx in poses:
+            _set_world_loc(arm_obj, "Pelvis", dz=dz, frame=f)
+            _set_world_rot(arm_obj, "Spine", rx=sp_rx, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=chest_rx, frame=f)
+            _set_world_rot(arm_obj, "Thigh_L", rx=th_rx, frame=f)
+            _set_world_rot(arm_obj, "Shin_L", rx=sh_rx, frame=f)
+            _set_world_rot(arm_obj, "Foot_L", rx=ft_rx, frame=f)
+            _set_world_rot(arm_obj, "Thigh_R", rx=th_rx * 0.9, frame=f)
+            _set_world_rot(arm_obj, "Shin_R", rx=sh_rx * 0.9, frame=f)
+            _set_world_rot(arm_obj, "Foot_R", rx=ft_rx, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=-0.22 if f == 10 else 0.18, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=-0.25, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=cape_rx, frame=f)
+
+    def _clip_airborne():
+        for f in range(0, 25, 6):
+            ph = 2.0 * math.pi * (f / 24.0)
+            s = math.sin(ph)
+            _set_world_rot(arm_obj, "Chest", rx=0.06, frame=f)
+            _set_world_rot(arm_obj, "Thigh_L", rx=-0.38 + 0.04 * s, frame=f)
+            _set_world_rot(arm_obj, "Shin_L", rx=0.62 + 0.05 * s, frame=f)
+            _set_world_rot(arm_obj, "Thigh_R", rx=0.14 - 0.04 * s, frame=f)
+            _set_world_rot(arm_obj, "Shin_R", rx=0.22, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=-0.28, ry=-0.12, frame=f)
+            _set_world_rot(arm_obj, "Forearm_L", rx=-0.35, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_R", rx=-0.16, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=-0.26, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=0.34 + 0.06 * s, frame=f)
+            _set_world_rot(arm_obj, "Cape_Mid", rx=0.22 + 0.08 * math.cos(ph), frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", rx=0.24 + 0.08 * s, frame=f)
+
+    def _clip_land():
+        poses = [
+            (0,  0.00, 0.06, -0.24, 0.42,  0.22, -0.10),
+            (5, -0.09, 0.18, -0.44, 0.76,  0.14, -0.30),
+            (14, 0.00, 0.00,  0.00, 0.00,  0.05,  0.00),
+        ]
+        for f, dz, chest_rx, th_rx, sh_rx, cape_rx, lant_rx in poses:
+            _set_world_loc(arm_obj, "Pelvis", dz=dz, frame=f)
+            _set_world_rot(arm_obj, "Spine", rx=chest_rx * 0.5, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=chest_rx, frame=f)
+            _set_world_rot(arm_obj, "Thigh_L", rx=th_rx, frame=f)
+            _set_world_rot(arm_obj, "Shin_L", rx=sh_rx, frame=f)
+            _set_world_rot(arm_obj, "Thigh_R", rx=th_rx * 0.9, frame=f)
+            _set_world_rot(arm_obj, "Shin_R", rx=sh_rx * 0.9, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=-0.24 if f == 5 else -0.04, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=cape_rx, frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", rx=lant_rx, frame=f)
+
+    def _make_turn(sign: float):
+        def _fn():
+            for f in (0, 8, 16):
+                a = 1.0 if f == 8 else 0.0
+                _set_world_rot(arm_obj, "Chest", rz=0.14 * sign * a, frame=f)
+                _set_world_rot(arm_obj, "Head", rz=0.20 * sign * a, frame=f)
+                _set_world_rot(arm_obj, "Pelvis", ry=0.03 * sign * a, rz=0.06 * sign * a, frame=f)
+                _set_world_rot(arm_obj, "Cape_Upper", ry=-0.10 * sign * a, frame=f)
+                _set_world_rot(arm_obj, "Lantern_Swing", ry=0.09 * sign * a, frame=f)
+        return _fn
+
+    def _clip_sword_ready():
+        keyframes = [
+            (0,  0.00, 0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00),
+            (10, 0.04, 0.14, -0.48, -0.72,  0.16, -0.18,  0.10, -0.12),
+            (22, 0.05, 0.16, -0.52, -0.76,  0.18, -0.20,  0.12, -0.14),
+            (36, 0.00, 0.00,  0.00,  0.00,  0.00,  0.00,  0.00,  0.00),
+        ]
+        for f, ch_rx, ch_rz, arm_rx, fa_rx, wp_rx, arm_l_rx, cape_rx, lant_ry in keyframes:
+            _set_world_loc(arm_obj, "Pelvis", dz=-0.018 if 10 <= f <= 22 else 0.0, frame=f)
+            _set_world_rot(arm_obj, "Chest", rx=ch_rx, rz=ch_rz, frame=f)
+            _set_world_rot(arm_obj, "Head", rx=0.03 if 10 <= f <= 22 else 0.0, rz=-ch_rz * 0.5, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_R", rx=arm_rx, ry=0.10 if 10 <= f <= 22 else 0.0, frame=f)
+            _set_world_rot(arm_obj, "Forearm_R", rx=fa_rx, frame=f)
+            _set_world_rot(arm_obj, "Weapon_Main_Bone", rx=wp_rx, frame=f)
+            _set_world_rot(arm_obj, "UpperArm_L", rx=arm_l_rx, frame=f)
+            _set_world_rot(arm_obj, "Cape_Upper", rx=cape_rx, frame=f)
+            _set_world_rot(arm_obj, "Lantern_Swing", ry=lant_ry, frame=f)
+
+    clip_defs = [
+        ("Idle", 0, _clip_idle),
+        ("Walk", 0, _clip_walk),
+        ("Run", 0, _clip_run),
+        ("Jump_Start", 0, _clip_jump_start),
+        ("Airborne", 0, _clip_airborne),
+        ("Land", 0, _clip_land),
+        ("Turn_Left", 0, _make_turn(1.0)),
+        ("Turn_Right", 0, _make_turn(-1.0)),
+        ("Sword_Ready", 0, _clip_sword_ready),
+    ]
+    for cname, fstart, fn in clip_defs:
+        _push_nla_clip(arm_obj, cname, fstart, fn)
+        clips.append(cname)
+    return clips

@@ -175,15 +175,27 @@ def build_weapons(detail: str = "MEDIUM") -> dict:
         scab_rings.append(ring)
     config.loft_rings(bm_scab, scab_rings, close_cap_start=True, close_cap_end=True)
 
-    # Diagonal criss-cross leather suspension wrap bands around upper-mid scabbard (just like Rear 3/4 view!)
-    for z_w in (z_scab_top * 0.62, z_scab_top * 0.72, z_scab_top * 0.80, z_scab_top * 0.88):
+    # Diagonal criss-cross leather cord wrap & suspension collar around upper scabbard (matches Rear 3/4)
+    for idx_w, z_w in enumerate((z_scab_top * 0.63, z_scab_top * 0.71, z_scab_top * 0.79, z_scab_top * 0.87)):
         band_pts = []
-        hw_z = 0.015 + (z_w / z_scab_top) * 0.022 + 0.003
-        th_z = 0.008 + (z_w / z_scab_top) * 0.008 + 0.003
+        hw_z = 0.015 + (z_w / z_scab_top) * 0.022 + 0.0025
+        th_z = 0.008 + (z_w / z_scab_top) * 0.008 + 0.0025
+        tilt = 0.016 if idx_w % 2 == 0 else -0.016
         for k in range(13):
             a = 2.0 * math.pi * k / 12
-            band_pts.append(Vector((math.cos(a) * hw_z, math.sin(a) * th_z, z_w + math.sin(a) * 0.012)))
-        config.tube_along_points(bm_scab, band_pts, radii=0.0065, radial_segs=6, cap_start=False, cap_end=False)
+            band_pts.append(Vector((math.cos(a) * hw_z, math.sin(a) * th_z, z_w + math.cos(a) * tilt)))
+        config.tube_along_points(bm_scab, band_pts, radii=0.0042, radial_segs=6, cap_start=False, cap_end=False)
+    # Crossed diagonal binding thongs linking wraps cleanly along back face
+    for z_a, z_b, side_s in (
+        (z_scab_top * 0.63, z_scab_top * 0.79, 1.0),
+        (z_scab_top * 0.71, z_scab_top * 0.87, -1.0),
+    ):
+        pts_d = [
+            Vector((-0.026 * side_s, 0.014, z_a)),
+            Vector((0.0, 0.018, 0.5 * (z_a + z_b))),
+            Vector((0.026 * side_s, 0.014, z_b)),
+        ]
+        config.tube_along_points(bm_scab, pts_d, radii=0.0038, radial_segs=5)
 
     for v in bm_scab.verts:
         v.co = mat_back @ v.co

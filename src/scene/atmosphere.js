@@ -16,7 +16,17 @@ const SKY_FRAGMENT_SHADER = /* glsl */ `
   uniform vec3 uSkyHorizon;
   uniform vec3 uSunDir;
   uniform vec3 uSunColor;
+  uniform vec3 uGroundColor;
+  uniform float uGroundDarken;
   varying vec3 vWorldDir;
+
+  float cloudBands(vec3 d) {
+    vec2 p = d.xz / (abs(d.y) + 0.35);
+    float c = sin(p.x * 0.9 + p.y * 0.45) * 0.5
+            + sin(p.x * 2.1 - p.y * 1.4 + 1.3) * 0.3
+            + cos(p.x * 3.7 + p.y * 2.9 - 0.8) * 0.2;
+    return smoothstep(-0.25, 0.75, c) * smoothstep(0.02, 0.45, d.y);
+  }
 
   void main() {
     vec3 dir = normalize(vWorldDir);
@@ -25,9 +35,21 @@ const SKY_FRAGMENT_SHADER = /* glsl */ `
     vec3 horizCol = mix(uSkyLeft, uSkyRight, lr);
     vec3 baseSky = mix(mix(uSkyHorizon, horizCol, 0.55), uSkyZenith, pow(h, 0.72));
 
+    float clouds = cloudBands(dir);
+    baseSky = mix(baseSky, uSkyZenith * 0.84, clouds * 0.22);
+
     float sunDot = max(dot(dir, normalize(uSunDir)), 0.0);
-    float glow = pow(sunDot, 10.0) * 0.42 + pow(sunDot, 72.0) * 0.75;
+    float glow = pow(sunDot, 10.0) * 0.36 + pow(sunDot, 72.0) * 0.65;
     vec3 col = baseSky + uSunColor * glow;
+
+    if (uGroundDarken > 0.5) {
+      float down = smoothstep(0.06, -0.38, dir.y);
+      col = mix(col, uGroundColor, down * 0.92);
+    } else if (dir.y < 0.0) {
+      float below = smoothstep(0.0, -0.18, dir.y);
+      col = mix(col, uSkyHorizon * 0.52, below);
+    }
+
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -58,6 +80,8 @@ export function createAtmosphereSystem(scene, renderer) {
     uSkyHorizon: { value: new THREE.Color("#a8aba1") },
     uSunDir: { value: new THREE.Vector3(0.925, 0.366, -0.097).normalize() },
     uSunColor: { value: new THREE.Color(0xffcc84) },
+    uGroundColor: { value: new THREE.Color(0x0b100e) },
+    uGroundDarken: { value: 0.0 },
   };
 
   const skyGeo = new THREE.SphereGeometry(720, 32, 24);
@@ -73,11 +97,15 @@ export function createAtmosphereSystem(scene, renderer) {
   skyMesh.frustumCulled = false;
   scene.add(skyMesh);
 
-  // Separate minimal scene for fast PMREM environment reflections
+  // Separate occluded environment sphere for physically grounded PMREM reflections
   const pmremGenerator = new THREE.PMREMGenerator(renderer);
   pmremGenerator.compileEquirectangularShader();
   const envScene = new THREE.Scene();
-  const envSky = new THREE.Mesh(new THREE.SphereGeometry(40, 24, 16), skyMat);
+  const envSkyMat = skyMat.clone();
+  envSkyMat.uniforms = THREE.UniformsUtils.clone(skyUniforms);
+  envSkyMat.uniforms.uGroundDarken.value = 1.0;
+  const envSkyGeo = new THREE.SphereGeometry(40, 24, 16);
+  const envSky = new THREE.Mesh(envSkyGeo, envSkyMat);
   envScene.add(envSky);
   let currentEnvRT = null;
 
@@ -86,13 +114,13 @@ export function createAtmosphereSystem(scene, renderer) {
   const mistGroup = new THREE.Group();
   const mistBanks = [
     // Right channel pocket (Blender X=26..56, Y=-50..+12, Z=2..6 -> Three X=26..56, Y=2..6, Z=-12..+50)
-    { center: [38, 3.2, 20], spread: [28, 3.0, 44], count: 14, scale: [34, 14] },
+    { center: [38, 3.2, 20], spread: [28, 3.0, 44], count: 24, scale: [34, 14] },
     // Courtyard & statue base mist
-    { center: [0, 1.8, -2], spread: [26, 1.6, 26], count: 10, scale: [24, 9] },
+    { center: [0, 1.8, -2], spread: [26, 1.6, 26], count: 18, scale: [24, 9] },
     // Left rear channel mist
-    { center: [-42, 3.0, -14], spread: [26, 2.2, 36], count: 10, scale: [30, 12] },
+    { center: [-42, 3.0, -14], spread: [26, 2.2, 36], count: 20, scale: [30, 12] },
     // Distant right spire horizon mist
-    { center: [38, 12.0, -135], spread: [120, 12.0, 50], count: 12, scale: [88, 34] },
+    { center: [38, 12.0, -135], spread: [120, 12.0, 50], count: 22, scale: [88, 34] },
   ];
 
   const mistSprites = [];
@@ -132,7 +160,7 @@ export function createAtmosphereSystem(scene, renderer) {
   scene.add(mistGroup);
 
   // Subtle floating dust motes across the sunlit sanctuary
-  const dustCount = 260;
+  const dustCount = 210;
   const dustPos = new Float32Array(dustCount * 3);
   for (let i = 0; i < dustCount; i++) {
     dustPos[i * 3] = (rand() - 0.5) * 90;
@@ -152,13 +180,26 @@ export function createAtmosphereSystem(scene, renderer) {
   const dustPoints = new THREE.Points(dustGeo, dustMat);
   scene.add(dustPoints);
 
+  function setQuality(preset) {
+    if (!preset) return;
+    const maxFog = Math.max(0, Math.min(mistSprites.length, preset.fogCount ?? mistSprites.length));
+    for (let i = 0; i < mistSprites.length; i++) {
+      mistSprites[i].visible = i < maxFog;
+    }
+    const maxDust = Math.max(0, Math.min(dustCount, preset.fireflyCount ?? dustCount));
+    dustGeo.setDrawRange(0, maxDust);
+  }
+
   function applyMood(mood) {
-    skyUniforms.uSkyLeft.value.set(mood.skyLeft);
-    skyUniforms.uSkyRight.value.set(mood.skyRight);
-    skyUniforms.uSkyZenith.value.set(mood.skyZenith);
-    skyUniforms.uSkyHorizon.value.set(mood.skyHorizon);
-    skyUniforms.uSunDir.value.set(...mood.sunDirection).normalize();
-    skyUniforms.uSunColor.value.setHex(mood.sunColor);
+    for (const u of [skyUniforms, envSkyMat.uniforms]) {
+      u.uSkyLeft.value.set(mood.skyLeft);
+      u.uSkyRight.value.set(mood.skyRight);
+      u.uSkyZenith.value.set(mood.skyZenith);
+      u.uSkyHorizon.value.set(mood.skyHorizon);
+      u.uSunDir.value.set(...mood.sunDirection).normalize();
+      u.uSunColor.value.setHex(mood.sunColor);
+    }
+    envSkyMat.uniforms.uGroundColor.value.setHex(mood.hemiGround || 0x0b100e);
 
     scene.fog = new THREE.FogExp2(mood.fogColor, mood.fogDensity);
     for (const sp of mistSprites) {
@@ -173,6 +214,7 @@ export function createAtmosphereSystem(scene, renderer) {
 
   function update(elapsed) {
     for (const sp of mistSprites) {
+      if (!sp.visible) continue;
       const u = sp.userData;
       sp.position.x = u.baseX + Math.sin(elapsed * u.speed + u.phase) * 2.6;
       sp.position.y = u.baseY + Math.cos(elapsed * u.speed * 0.8 + u.phase) * 0.35;
@@ -185,10 +227,13 @@ export function createAtmosphereSystem(scene, renderer) {
     pmremGenerator.dispose();
     skyGeo.dispose();
     skyMat.dispose();
+    envSkyGeo.dispose();
+    envSkyMat.dispose();
     mistTex.dispose();
+    for (const sp of mistSprites) sp.material.dispose();
     dustGeo.dispose();
     dustMat.dispose();
   }
 
-  return { applyMood, update, dispose };
+  return { applyMood, setQuality, update, dispose };
 }

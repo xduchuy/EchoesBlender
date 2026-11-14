@@ -42,7 +42,7 @@ def _add_local_box(
     verts = ret["verts"]
     if bevel_width > 0.002:
         edges = list({e for v in verts for e in v.link_edges})
-        bmesh.ops.bevel(
+        bev_ret = bmesh.ops.bevel(
             bm,
             geom=edges,
             offset=bevel_width,
@@ -51,6 +51,9 @@ def _add_local_box(
             affect="EDGES",
             clamp_overlap=True,
         )
+        bev_verts = [v for v in bev_ret.get("verts", []) if v.is_valid]
+        if bev_verts:
+            verts = bev_verts
     return [v for v in verts if v.is_valid]
 
 
@@ -96,27 +99,47 @@ def create_pointed_arch(
     rng: Optional[random.Random] = None,
     damage_skip_prob: float = 0.0,
 ) -> None:
-    """Build a pointed Gothic arch ring with voussoir segments and projecting molding."""
+    """Build a layered pointed Gothic arch ring with 2-order recessed archivolt & outer hood-mold."""
     half_span = span * 0.5
     inner_pts = gothic_arch_points(half_span, spring_z, apex_z, segments_per_side)
+    mid_r = arch_thickness * 0.56
+    mid_pts = gothic_arch_points(
+        half_span + mid_r,
+        spring_z,
+        apex_z + mid_r * 1.08,
+        segments_per_side,
+    )
     outer_pts = gothic_arch_points(
         half_span + arch_thickness,
         spring_z,
         apex_z + arch_thickness * 1.15,
         segments_per_side,
     )
-    y0 = -depth_y * 0.5 - molding_protrusion
-    y1 = depth_y * 0.5 + molding_protrusion
+    y0_inner = -depth_y * 0.44
+    y1_inner = depth_y * 0.44
+    y0_outer = -depth_y * 0.5 - molding_protrusion
+    y1_outer = depth_y * 0.5 + molding_protrusion
 
-    n = min(len(inner_pts), len(outer_pts))
+    n = min(len(inner_pts), len(mid_pts), len(outer_pts))
     for i in range(n - 1):
         if rng and damage_skip_prob > 0.0 and rng.random() < damage_skip_prob:
             continue
         p0, p1 = inner_pts[i], inner_pts[i + 1]
-        q1, q0 = outer_pts[i + 1], outer_pts[i]
-        # Slight voussoir relief jitter
-        dy = (rng.uniform(-0.025, 0.025) if rng else 0.0)
-        _add_poly_extrude_y(bm, xf, [p0, p1, q1, q0], y0 + dy, y1 - dy)
+        m0, m1 = mid_pts[i], mid_pts[i + 1]
+        q0, q1 = outer_pts[i], outer_pts[i + 1]
+        dy = rng.uniform(-0.02, 0.02) if rng else 0.0
+        # Recessed inner chamfered order (creates shadowed Gothic depth under archivolt)
+        _add_poly_extrude_y(bm, xf, [p0, p1, m1, m0], y0_inner + dy, y1_inner - dy)
+        # Outer projecting voussoir ring + subtle keystone accent at apex
+        is_keystone = abs(i - (n // 2 - 1)) <= 0 and (n % 2 == 1)
+        extra_y = 0.05 if is_keystone else 0.0
+        _add_poly_extrude_y(
+            bm,
+            xf,
+            [m0, m1, q1, q0],
+            y0_outer - extra_y + dy * 0.5,
+            y1_outer + extra_y - dy * 0.5,
+        )
 
 
 def create_stone_pier(
@@ -176,14 +199,14 @@ def create_buttress(
     stages: int = 3,
     direction_y: float = -1.0,
 ) -> None:
-    """Build a multi-stage stepped Gothic buttress projecting along ±Y."""
+    """Build a multi-stage stepped Gothic buttress projecting along +-Y with sloped weatherings."""
     stage_h = height / max(1, stages)
     for i in range(stages):
         t = i / max(1, stages)
         cur_proj = projection * (1.0 - 0.32 * t)
         cur_w = width * (1.0 - 0.10 * t)
         z0 = base_z + i * stage_h
-        z1 = z0 + stage_h + 0.15
+        z1 = z0 + stage_h + 0.12
         sh = z1 - z0
         off_y = cy + direction_y * (cur_proj * 0.5)
         _add_local_box(
@@ -193,14 +216,29 @@ def create_buttress(
             (cur_w, cur_proj, sh),
             bevel_width=0.04,
         )
-        # Sloped/stepped cap stone
-        _add_local_box(
-            bm,
-            xf,
-            (cx, off_y - direction_y * 0.08, z1 + 0.12),
-            (cur_w + 0.12, cur_proj + 0.08, 0.24),
-            bevel_width=0.04,
-        )
+        # True sloped stone weathering cap shedding rainwater outward
+        wedge_xf = xf @ Matrix.Translation((cx, cy, z1))
+        y_outer = direction_y * (cur_proj + 0.10)
+        y_inner = -direction_y * 0.06
+        slope_h = max(0.28, cur_proj * 0.36)
+        pts_yz = [
+            (y_inner, 0.0),
+            (y_outer, 0.0),
+            (y_outer, 0.10),
+            (y_inner, slope_h),
+        ]
+        x0 = -cur_w * 0.5 - 0.05
+        x1 = cur_w * 0.5 + 0.05
+        v_left = [bm.verts.new(wedge_xf @ Vector((x0, py, pz))) for py, pz in pts_yz]
+        v_right = [bm.verts.new(wedge_xf @ Vector((x1, py, pz))) for py, pz in pts_yz]
+        try:
+            bm.faces.new(list(reversed(v_left)))
+            bm.faces.new(v_right)
+            for si in range(len(pts_yz)):
+                sj = (si + 1) % len(pts_yz)
+                bm.faces.new([v_left[si], v_left[sj], v_right[sj], v_right[si]])
+        except ValueError:
+            pass
 
 
 def create_cornice(
@@ -213,15 +251,38 @@ def create_cornice(
     depth: float,
     height: float = 0.42,
     overhang: float = 0.26,
+    ring_thickness: float = 1.45,
 ) -> None:
-    """Build a projecting horizontal stone cornice / stringcourse."""
-    _add_local_box(
-        bm,
-        xf,
-        (cx, cy, z),
-        (width + overhang * 2.0, depth + overhang * 2.0, height),
-        bevel_width=0.05,
-    )
+    """Build a hollow projecting horizontal stone cornice / stringcourse keeping tower interior open."""
+    outer_w = width + overhang * 2.0
+    outer_d = depth + overhang * 2.0
+    rim = min(ring_thickness + overhang, min(outer_w, outer_d) * 0.34)
+    inner_w = max(0.4, outer_w - rim * 2.0)
+
+    # Lower dripstone course + upper projecting table
+    for sub_z, sub_h, ext in ((z - height * 0.26, height * 0.38, -0.09), (z + height * 0.14, height * 0.56, 0.0)):
+        ow = outer_w + ext * 2.0
+        od = outer_d + ext * 2.0
+        iw = max(0.4, inner_w - ext * 2.0)
+        # Front & Back perimeter strips
+        for sy in (-1.0, 1.0):
+            _add_local_box(
+                bm,
+                xf,
+                (cx, cy + sy * (od * 0.5 - rim * 0.5), sub_z),
+                (ow, rim, sub_h),
+                bevel_width=0.04,
+            )
+        # Left & Right perimeter strips spanning inside front/back
+        side_len = max(0.3, od - rim * 2.0 + 0.06)
+        for sx in (-1.0, 1.0):
+            _add_local_box(
+                bm,
+                xf,
+                (cx + sx * (iw * 0.5 + rim * 0.5), cy, sub_z),
+                (rim, side_len, sub_h),
+                bevel_width=0.04,
+            )
 
 
 def create_lancet_tracery(
@@ -234,23 +295,36 @@ def create_lancet_tracery(
     rng: random.Random,
     damage: float = 0.35,
 ) -> None:
-    """Build slender stone mullions and Gothic sub-arch tracery inside a window opening."""
+    """Build slender stone mullions and Gothic sub-arch tracery grounded cleanly to jambs/sills."""
     if span < 1.3:
         return
     mullion_w = 0.16
     mullion_d = 0.22
-    # Central or twin mullions
     num_mullions = 1 if span < 2.6 else 2
+    intact_top = spring_z + (apex_z - spring_z) * (0.65 if num_mullions == 1 else 0.45)
+    any_full_mullion = False
+
     for idx in range(num_mullions):
-        if rng.random() < damage * 0.4:
+        if rng.random() < damage * 0.35:
+            # Leave a short broken mullion stump grounded at sill rather than floating pieces!
+            stub_h = rng.uniform(0.35, 0.85)
+            frac = (idx + 1) / (num_mullions + 1) - 0.5
+            _add_local_box(
+                bm,
+                xf,
+                (frac * span, 0.0, sill_z + stub_h * 0.5),
+                (mullion_w, mullion_d, stub_h),
+                bevel_width=0.02,
+            )
             continue
+
         frac = (idx + 1) / (num_mullions + 1) - 0.5
         mx = frac * span
-        # Sometimes top or bottom of mullion is broken off
-        top_z = spring_z + (apex_z - spring_z) * (0.65 if num_mullions == 1 else 0.45)
-        if rng.random() < damage * 0.6:
-            top_z = sill_z + (top_z - sill_z) * rng.uniform(0.35, 0.85)
-        mh = max(0.3, top_z - sill_z)
+        is_broken = rng.random() < damage * 0.48
+        top_z = sill_z + (intact_top - sill_z) * rng.uniform(0.45, 0.88) if is_broken else intact_top
+        if not is_broken:
+            any_full_mullion = True
+        mh = max(0.35, top_z - sill_z)
         _add_local_box(
             bm,
             xf,
@@ -259,31 +333,31 @@ def create_lancet_tracery(
             bevel_width=0.02,
         )
 
-    # Optional horizontal transom bar (like Right Front belfry in reference!)
-    if (spring_z - sill_z) > 4.5 and rng.random() > damage * 0.3:
+    # Full-width horizontal transom bar anchored into BOTH side jambs (never floating!)
+    if (spring_z - sill_z) > 4.5 and (any_full_mullion or rng.random() > damage * 0.5):
         tz = sill_z + (spring_z - sill_z) * 0.52
         _add_local_box(
             bm,
             xf,
             (0.0, 0.0, tz),
-            (span * 0.96, mullion_d * 0.9, 0.18),
+            (span + 0.10, mullion_d * 0.9, 0.18),
             bevel_width=0.02,
         )
 
-    # Sub-arch ring near head
-    if rng.random() > damage * 0.45:
+    # Complete continuous sub-arch tracery ring only if anchored (zero floating voussoir islands)
+    if any_full_mullion and rng.random() > damage * 0.40:
         create_pointed_arch(
             bm,
             xf,
-            span=span * 0.44,
-            spring_z=spring_z - 0.3,
-            apex_z=apex_z - 0.6,
+            span=span * 0.54,
+            spring_z=spring_z - 0.25,
+            apex_z=apex_z - 0.45,
             arch_thickness=0.14,
-            depth_y=0.20,
+            depth_y=0.19,
             segments_per_side=5,
             molding_protrusion=0.02,
             rng=rng,
-            damage_skip_prob=damage * 0.5,
+            damage_skip_prob=0.0,
         )
 
 
@@ -467,31 +541,33 @@ def create_broken_parapet(
     max_height: float,
     rng: random.Random,
     damage_bias: float = 0.45,
-    merlon_width: float = 1.15,
+    merlon_width: float = 1.05,
 ) -> None:
-    """Build a jagged, partially collapsed Gothic parapet / battlement crown."""
+    """Build an irregularly fractured, stepped ashlar Gothic parapet / ruined battlement."""
     n_seg = max(4, int(round(width / merlon_width)))
     seg_w = width / n_seg
-    # Coherent height field so missing stones cluster rather than checkerboard
     phase = rng.uniform(0.0, 10.0)
+    phase2 = rng.uniform(0.0, 10.0)
+    course_h = max(0.28, max_height / 3.5)
+
     for i in range(n_seg):
         sx = -width * 0.5 + (i + 0.5) * seg_w
-        coh = 0.5 + 0.5 * math.sin(i * 0.9 + phase)
-        if coh < damage_bias * 0.72 and rng.random() < 0.7:
-            # Collapsed gap
-            h = rng.uniform(0.15, max_height * 0.32)
+        coh = 0.5 + 0.35 * math.sin(i * 0.85 + phase) + 0.15 * math.cos(i * 1.9 + phase2)
+        if coh < damage_bias * 0.68 and rng.random() < 0.72:
+            raw_h = rng.uniform(0.18, max_height * 0.36)
         else:
-            # Surviving merlon or stepped masonry tooth
-            is_merlon = (i % 2 == 0)
-            h = max_height * (rng.uniform(0.75, 1.05) if is_merlon else rng.uniform(0.42, 0.72))
-        if h > 0.25:
+            raw_h = max_height * min(1.08, max(0.32, coh * rng.uniform(0.65, 1.15)))
+        # Snap roughly to weathered ashlar stone courses with subtle fractured offsets
+        courses = max(0, int(round(raw_h / course_h)))
+        h = courses * course_h + rng.uniform(-0.08, 0.08)
+        if h > 0.24:
             _add_local_box(
                 bm,
                 xf,
-                (sx, 0.0, base_z + h * 0.5),
-                (seg_w * 0.96, thickness, h),
-                rot_deg=(rng.uniform(-1.5, 1.5), rng.uniform(-1.5, 1.5), 0.0),
-                bevel_width=0.035,
+                (sx, rng.uniform(-0.02, 0.02), base_z + h * 0.5),
+                (seg_w * rng.uniform(0.92, 1.01), thickness, h),
+                rot_deg=(rng.uniform(-2.2, 2.2), rng.uniform(-2.2, 2.2), rng.uniform(-1.5, 1.5)),
+                bevel_width=0.038,
             )
 
 
@@ -726,7 +802,18 @@ def create_tower_segment(
                 )
 
     if not broken_top:
-        create_cornice(bm, xf, 0.0, 0.0, base_z + height, width, depth, height=0.45, overhang=0.28)
+        create_cornice(
+            bm,
+            xf,
+            0.0,
+            0.0,
+            base_z + height,
+            width,
+            depth,
+            height=0.45,
+            overhang=0.28,
+            ring_thickness=wall_thickness + 0.25,
+        )
     else:
         # Broken vault ribs inside top of ruined tower!
         create_arch_vault_fragment(bm, xf, span=width * 0.65, spring_z=base_z + height * 0.55, rise=4.2, rng=rng)
@@ -795,7 +882,7 @@ def create_ruin_cluster(
         )
 
     apply_coherent_stone_weathering(bm, amp=0.05, freq=0.45, seed_offset=(center[0], center[1], 0.0))
-    return create_mesh_object(name, bm, col, mat=mat)
+    return create_mesh_object(name, bm, col, mat=mat, sharp_angle_deg=42.0)
 
 
 # ==============================================================================
@@ -895,7 +982,7 @@ def _build_left_front_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
     )
 
     apply_coherent_stone_weathering(bm, amp=0.075, freq=0.32, seed_offset=(12.0, -5.0, 3.0), z_erosion_boost=0.04)
-    objs.append(create_mesh_object("Tower_LeftFront_Main", bm, col, mat=mats["MAT_Limestone_Base"]))
+    objs.append(create_mesh_object("Tower_LeftFront_Main", bm, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0))
 
     # Far-left Bastion Tower perched near the left cliff
     bm_bast = bmesh.new()
@@ -918,7 +1005,7 @@ def _build_left_front_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
         add_buttresses=True,
     )
     apply_coherent_stone_weathering(bm_bast, amp=0.08, freq=0.35, seed_offset=(-55.0, 11.0, 0.0))
-    objs.append(create_mesh_object("Tower_LeftBastion", bm_bast, col, mat=mats["MAT_Limestone_Base"]))
+    objs.append(create_mesh_object("Tower_LeftBastion", bm_bast, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0))
     return objs
 
 
@@ -966,7 +1053,7 @@ def _build_left_rear_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
         add_buttresses=True,
     )
     apply_coherent_stone_weathering(bm, amp=0.07, freq=0.32, seed_offset=(-13.0, 21.0, 4.0), z_erosion_boost=0.04)
-    return [create_mesh_object("Tower_LeftRear_Belfry", bm, col, mat=mats["MAT_Limestone_Light"])]
+    return [create_mesh_object("Tower_LeftRear_Belfry", bm, col, mat=mats["MAT_Limestone_Light"], sharp_angle_deg=42.0)]
 
 
 def _build_right_rear_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
@@ -1012,7 +1099,7 @@ def _build_right_rear_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
         add_buttresses=True,
     )
     apply_coherent_stone_weathering(bm, amp=0.07, freq=0.32, seed_offset=(13.0, 21.0, 7.0), z_erosion_boost=0.04)
-    return [create_mesh_object("Tower_RightRear_Belfry", bm, col, mat=mats["MAT_Limestone_Light"])]
+    return [create_mesh_object("Tower_RightRear_Belfry", bm, col, mat=mats["MAT_Limestone_Light"], sharp_angle_deg=42.0)]
 
 
 def _build_right_front_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
@@ -1141,7 +1228,7 @@ def _build_right_front_tower(cols, mats, preset: str) -> List[bpy.types.Object]:
     _add_local_box(bm, stair_xf, (-2.8, -1.6, 3.8), (6.5, 0.65, 2.6), rot_deg=(0.0, 32.0, 0.0), bevel_width=0.04)
 
     apply_coherent_stone_weathering(bm, amp=0.075, freq=0.32, seed_offset=(22.0, -6.0, 5.0), z_erosion_boost=0.04)
-    objs.append(create_mesh_object("Tower_RightFront_Complex", bm, col, mat=mats["MAT_Limestone_Base"]))
+    objs.append(create_mesh_object("Tower_RightFront_Complex", bm, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0))
     return objs
 
 
@@ -1218,7 +1305,7 @@ def _build_rear_arcade(cols, mats, preset: str) -> List[bpy.types.Object]:
         create_stone_pier(bm, pxf, 0.0, 0.0, 0.0, 1.85, 2.25, ph, plinth_h=1.6, capital_h=0.8)
 
     apply_coherent_stone_weathering(bm, amp=0.065, freq=0.35, seed_offset=(0.0, 14.0, 2.0))
-    return [create_mesh_object("Arcade_Rear_Apse", bm, col, mat=mats["MAT_Limestone_Base"])]
+    return [create_mesh_object("Arcade_Rear_Apse", bm, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0)]
 
 
 def _build_connecting_walls(cols, mats, preset: str) -> List[bpy.types.Object]:
@@ -1246,7 +1333,7 @@ def _build_connecting_walls(cols, mats, preset: str) -> List[bpy.types.Object]:
     create_ruined_wall(bm, xf_ent_l, length=7.5, thickness=1.3, base_height=8.5, min_height=2.8, rng=rng, bays=1, sill_z=0.0, collapse_side="right")
 
     apply_coherent_stone_weathering(bm, amp=0.07, freq=0.35, seed_offset=(5.0, -10.0, 1.0))
-    objs.append(create_mesh_object("Walls_Connecting_Ruins", bm, col, mat=mats["MAT_Limestone_Base"]))
+    objs.append(create_mesh_object("Walls_Connecting_Ruins", bm, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0))
 
     # Distant ruined Gothic spire visible through right mist (Priority C architectural silhouette)
     bm_dist = bmesh.new()
@@ -1268,7 +1355,7 @@ def _build_connecting_walls(cols, mats, preset: str) -> List[bpy.types.Object]:
         top_corner_bias=(1.0, 0.65, 0.85, 0.45),
         add_buttresses=False,
     )
-    objs.append(create_mesh_object("Tower_Distant_MistRuin", bm_dist, col, mat=mats["MAT_Limestone_Eroded"]))
+    objs.append(create_mesh_object("Tower_Distant_MistRuin", bm_dist, col, mat=mats["MAT_Limestone_Eroded"], sharp_angle_deg=42.0))
 
     return objs
 

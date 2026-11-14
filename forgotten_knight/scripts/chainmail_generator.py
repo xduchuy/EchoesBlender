@@ -70,24 +70,26 @@ def _build_arm_chainmail_sleeves(detail: str) -> list:
         sh = j[f"shoulder_{side}"]
         el = j[f"elbow_{side}"]
         wr = j[f"wrist_{side}"]
+        in_x = -0.035 if side == "L" else 0.035
 
-        # Base dark mail sleeve backing mesh so skin never shows between rings
+        # Base dark mail sleeve backing mesh extending cleanly into shoulder socket so underbody never shows
         bm_base = bmesh.new()
         pts_back = [
-            (sh.lerp(el, 0.12), 0.064),
-            (sh.lerp(el, 0.55), 0.058),
-            (el, 0.051),
-            (el.lerp(wr, 0.28), 0.048),
+            (sh + Vector((in_x, 0.0, 0.008)), 0.060),
+            (sh.lerp(el, 0.10), 0.062),
+            (sh.lerp(el, 0.55), 0.056),
+            (el, 0.050),
+            (el.lerp(wr, 0.28), 0.047),
         ]
         config.tube_along_points(bm_base, [p for p, _ in pts_back], [r for _, r in pts_back], radial_segs=14)
         base_obj = config.finalize_bmesh(bm_base, f"Chainmail_SleeveBase_{side}", "08_CHAINMAIL", mat_name="MAT_Chainmail", smooth=True)
         objs.append(base_obj)
 
-        # Real 3D staggered chainmail rings covering visible bicep & elbow crook
+        # Real 3D staggered chainmail rings covering upper bicep through elbow crook
         bm_rings = bmesh.new()
-        def _sample_arm(u, v, p_start=sh.lerp(el, 0.22), p_end=el.lerp(wr, 0.18)):
+        def _sample_arm(u, v, p_start=sh.lerp(el, 0.08), p_end=el.lerp(wr, 0.18)):
             c = p_start.lerp(p_end, u)
-            rad = 0.062 - u * 0.012
+            rad = 0.061 - u * 0.012
             dir_v = (p_end - p_start).normalized()
             ref = Vector((0.0, -1.0, 0.0))
             ax = ref.cross(dir_v).normalized()

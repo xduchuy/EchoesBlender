@@ -5,12 +5,19 @@ import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
+import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
 import { CAMERA_PRESETS, LIGHTING_MOODS } from "./config.js";
 import { createSanctuaryMaterialEnhancer } from "./materials.js";
 import { createAtmosphereSystem } from "./atmosphere.js";
 import { KnightCharacter } from "./KnightCharacter.js";
+import {
+  createPerfMonitor,
+  detectDefaultQuality,
+  getNextQualityId,
+  getQualityPreset,
+} from "./quality.js";
 
 export class SanctuaryViewer {
   constructor(canvas, callbacks = {}) {
@@ -26,21 +33,59 @@ export class SanctuaryViewer {
     this.clock = new THREE.Clock();
     this.isDraggingLook = false;
     this.lastPointer = { x: 0, y: 0 };
+    this.activePointers = new Map();
+    this.lastPinchDist = null;
     this.euler = new THREE.Euler(0, 0, 0, "YXZ");
+
+    this.virtualInput = {
+      moveX: 0,
+      moveY: 0,
+      sprint: false,
+      jump: false,
+      swordReady: false,
+    };
 
     this.knight = new KnightCharacter();
     this.knightOrbit = { yaw: 0.24, pitch: 0.24, distance: 4.35 };
     this._knightCamGoal = new THREE.Vector3();
     this._knightLookPos = new THREE.Vector3();
     this._camDirTmp = new THREE.Vector3();
+    this._sunDirTmp = new THREE.Vector3(...LIGHTING_MOODS[0].sunDirection).normalize();
     this._camRaycaster = new THREE.Raycaster();
+    this.perfMonitor = createPerfMonitor();
+
+    this.qualityPreset = getQualityPreset("high");
 
     this._initRenderer();
+    this._detectInitialQuality();
     this._initScene();
     this._initLighting();
     this._initControls();
     this._initPostProcessing();
     this._bindEvents();
+    this.setQualityPreset(this.qualityPreset.id);
+  }
+
+  _getGpuRendererString() {
+    try {
+      const gl = this.renderer.getContext();
+      const dbg = gl?.getExtension("WEBGL_debug_renderer_info");
+      if (dbg) {
+        return String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || "");
+      }
+      return String(gl?.getParameter(gl.RENDERER) || "");
+    } catch {
+      return "";
+    }
+  }
+
+  _detectInitialQuality() {
+    const isMobile =
+      typeof window !== "undefined" &&
+      (window.matchMedia?.("(pointer: coarse)")?.matches || window.innerWidth <= 820);
+    const gpuRenderer = this._getGpuRendererString();
+    const id = detectDefaultQuality({ isMobile, gpuRenderer });
+    this.qualityPreset = getQualityPreset(id);
   }
 
   _initRenderer() {
@@ -49,13 +94,14 @@ export class SanctuaryViewer {
       antialias: true,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, this.qualityPreset.maxPixelRatio));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMapping = THREE.AgXToneMapping;
     this.renderer.toneMappingExposure = LIGHTING_MOODS[0].exposure;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
+    this.renderer.info.autoReset = false;
   }
 
   _initScene() {
@@ -76,7 +122,10 @@ export class SanctuaryViewer {
   _initLighting() {
     this.sunLight = new THREE.DirectionalLight(0xffcc84, 3.4);
     this.sunLight.castShadow = true;
-    this.sunLight.shadow.mapSize.set(2048, 2048);
+    this.sunLight.shadow.mapSize.set(
+      this.qualityPreset.shadowMapSize,
+      this.qualityPreset.shadowMapSize
+    );
     this.sunLight.shadow.camera.left = -85;
     this.sunLight.shadow.camera.right = 85;
     this.sunLight.shadow.camera.top = 85;
@@ -110,7 +159,14 @@ export class SanctuaryViewer {
   }
 
   _initPostProcessing() {
+    const dpr = this.renderer.getPixelRatio();
+    const w = Math.max(1, Math.floor(window.innerWidth * dpr));
+    const h = Math.max(1, Math.floor(window.innerHeight * dpr));
+
     this.composer = new EffectComposer(this.renderer);
+    this.composer.setPixelRatio(dpr);
+    this.composer.setSize(window.innerWidth, window.innerHeight);
+
     this.renderPass = new RenderPass(this.scene, this.camera);
     this.composer.addPass(this.renderPass);
 
@@ -121,6 +177,11 @@ export class SanctuaryViewer {
       0.88
     );
     this.composer.addPass(this.bloomPass);
+
+    this.smaaPass = new SMAAPass(w, h);
+    this.smaaPass.enabled = Boolean(this.qualityPreset.smaa);
+    this.composer.addPass(this.smaaPass);
+
     this.composer.addPass(new OutputPass());
   }
 
@@ -128,9 +189,12 @@ export class SanctuaryViewer {
     this._onResize = () => {
       const w = window.innerWidth;
       const h = window.innerHeight;
+      const dpr = Math.min(window.devicePixelRatio || 1, this.qualityPreset.maxPixelRatio);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
+      this.renderer.setPixelRatio(dpr);
       this.renderer.setSize(w, h);
+      this.composer.setPixelRatio(dpr);
       this.composer.setSize(w, h);
     };
 
@@ -154,15 +218,50 @@ export class SanctuaryViewer {
       this.keys.delete(e.code);
     };
 
+    this._onBlur = () => {
+      this.keys.clear();
+      this.activePointers.clear();
+      this.isDraggingLook = false;
+      this.lastPinchDist = null;
+    };
+
     this._onPointerDown = (e) => {
       this.transition = null;
-      if ((this.walkMode || this.knightMode) && e.button === 0) {
+      this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      if (this.activePointers.size === 2 && this.knightMode) {
+        const pts = Array.from(this.activePointers.values());
+        this.lastPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        this.isDraggingLook = false;
+        return;
+      }
+
+      if ((this.walkMode || this.knightMode) && (e.button === 0 || e.pointerType !== "mouse")) {
         this.isDraggingLook = true;
         this.lastPointer = { x: e.clientX, y: e.clientY };
       }
     };
 
     this._onPointerMove = (e) => {
+      if (this.activePointers.has(e.pointerId)) {
+        this.activePointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      }
+
+      if (this.activePointers.size === 2 && this.knightMode) {
+        const pts = Array.from(this.activePointers.values());
+        const dist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+        if (this.lastPinchDist !== null) {
+          const delta = this.lastPinchDist - dist;
+          this.knightOrbit.distance = THREE.MathUtils.clamp(
+            this.knightOrbit.distance + delta * 0.015,
+            2.3,
+            9.5
+          );
+        }
+        this.lastPinchDist = dist;
+        return;
+      }
+
       if (!this.isDraggingLook) return;
       const dx = e.clientX - this.lastPointer.x;
       const dy = e.clientY - this.lastPointer.y;
@@ -174,17 +273,23 @@ export class SanctuaryViewer {
         this.euler.x = Math.max(-1.45, Math.min(1.45, this.euler.x - dy * 0.0032));
         this.camera.quaternion.setFromEuler(this.euler);
       } else if (this.knightMode) {
-        this.knightOrbit.yaw -= dx * 0.0046;
+        this.knightOrbit.yaw -= dx * 0.0048;
         this.knightOrbit.pitch = THREE.MathUtils.clamp(
-          this.knightOrbit.pitch + dy * 0.004,
+          this.knightOrbit.pitch + dy * 0.0042,
           -0.12,
           1.05
         );
       }
     };
 
-    this._onPointerUp = () => {
-      this.isDraggingLook = false;
+    this._onPointerUp = (e) => {
+      this.activePointers.delete(e.pointerId);
+      if (this.activePointers.size < 2) {
+        this.lastPinchDist = null;
+      }
+      if (this.activePointers.size === 0) {
+        this.isDraggingLook = false;
+      }
     };
 
     this._onWheel = (e) => {
@@ -199,10 +304,63 @@ export class SanctuaryViewer {
     window.addEventListener("resize", this._onResize);
     window.addEventListener("keydown", this._onKeyDown);
     window.addEventListener("keyup", this._onKeyUp);
+    window.addEventListener("blur", this._onBlur);
     this.canvas.addEventListener("pointerdown", this._onPointerDown);
     this.canvas.addEventListener("wheel", this._onWheel, { passive: true });
     window.addEventListener("pointermove", this._onPointerMove);
     window.addEventListener("pointerup", this._onPointerUp);
+    window.addEventListener("pointercancel", this._onPointerUp);
+  }
+
+  getQualityPreset() {
+    return this.qualityPreset;
+  }
+
+  setQualityPreset(qualityId) {
+    const preset = getQualityPreset(qualityId);
+    const shadowChanged = this.sunLight && this.qualityPreset.shadowMapSize !== preset.shadowMapSize;
+    this.qualityPreset = preset;
+
+    const dpr = Math.min(window.devicePixelRatio || 1, preset.maxPixelRatio);
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+    if (this.composer) {
+      this.composer.setPixelRatio(dpr);
+      this.composer.setSize(window.innerWidth, window.innerHeight);
+    }
+
+    if (this.smaaPass) {
+      this.smaaPass.enabled = Boolean(preset.smaa);
+    }
+
+    if (this.sunLight) {
+      this.sunLight.castShadow = Boolean(preset.shadowsEnabled);
+      if (shadowChanged) {
+        this.sunLight.shadow.mapSize.set(preset.shadowMapSize, preset.shadowMapSize);
+        this.sunLight.shadow.map?.dispose();
+        this.sunLight.shadow.map = null;
+      }
+    }
+
+    if (this.bloomPass) {
+      const mood = LIGHTING_MOODS[this.moodIndex];
+      this.bloomPass.strength = mood.bloomStrength * preset.bloomScale;
+    }
+
+    this.scene.environmentIntensity = preset.envIntensityScale;
+    this.atmosphere.setQuality(preset);
+    this.materialEnhancer.setWaterQuality(preset.waterQuality);
+    this.callbacks.onQualityChange?.(preset);
+    return preset;
+  }
+
+  cycleQuality() {
+    return this.setQualityPreset(getNextQualityId(this.qualityPreset.id));
+  }
+
+  setVirtualInput(partial) {
+    Object.assign(this.virtualInput, partial);
   }
 
   async loadModel(url = "/models/drowned_sanctuary.glb", knightUrl = "/models/forgotten_knight.glb") {
@@ -280,22 +438,60 @@ export class SanctuaryViewer {
     }
 
     dracoLoader.dispose();
+    this.setQualityPreset(this.qualityPreset.id);
 
     this.callbacks.onProgress?.(1.0);
     this.callbacks.onLoaded?.({
       meshes: meshCount,
       triangles: Math.round(triCount),
+      quality: this.qualityPreset,
     });
 
     this._startLoop();
+  }
+
+  _configureShadowFrustum(mode) {
+    const sc = this.sunLight.shadow.camera;
+    if (mode === "knight") {
+      sc.left = -18;
+      sc.right = 18;
+      sc.top = 18;
+      sc.bottom = -18;
+      sc.near = 6;
+      sc.far = 160;
+      this.sunLight.shadow.bias = -0.0003;
+      this.sunLight.shadow.normalBias = 0.025;
+    } else {
+      sc.left = -85;
+      sc.right = 85;
+      sc.top = 85;
+      sc.bottom = -85;
+      sc.near = 10;
+      sc.far = 360;
+      this.sunLight.shadow.bias = -0.0005;
+      this.sunLight.shadow.normalBias = 0.06;
+    }
+    sc.updateProjectionMatrix();
+  }
+
+  _updateShadowTarget() {
+    if (this.knightMode && this.knight.ready) {
+      this.sunLight.target.position.copy(this.knight.position);
+      this.sunLight.position
+        .copy(this.knight.position)
+        .addScaledVector(this._sunDirTmp, 75);
+    } else {
+      this.sunLight.target.position.set(0, 4, -5);
+      this.sunLight.position.copy(this._sunDirTmp).multiplyScalar(160);
+    }
   }
 
   applyMood(index) {
     this.moodIndex = index % LIGHTING_MOODS.length;
     const mood = LIGHTING_MOODS[this.moodIndex];
 
-    const sDir = new THREE.Vector3(...mood.sunDirection).normalize();
-    this.sunLight.position.copy(sDir).multiplyScalar(160);
+    this._sunDirTmp.set(...mood.sunDirection).normalize();
+    this._updateShadowTarget();
     this.sunLight.color.setHex(mood.sunColor);
     this.sunLight.intensity = mood.sunIntensity;
 
@@ -310,10 +506,11 @@ export class SanctuaryViewer {
 
     this.renderer.toneMappingExposure = mood.exposure;
     if (this.bloomPass) {
-      this.bloomPass.strength = mood.bloomStrength;
+      this.bloomPass.strength = mood.bloomStrength * this.qualityPreset.bloomScale;
     }
 
     this.atmosphere.applyMood(mood);
+    this.materialEnhancer.setWaterMood(mood.id);
     this.knight.setMoodProfile(mood.id);
     return mood;
   }
@@ -385,6 +582,9 @@ export class SanctuaryViewer {
     this.controls.enabled = !this.knightMode && !this.walkMode;
     this.controls.autoRotate = this.autoOrbit && !this.knightMode && !this.walkMode;
 
+    this._configureShadowFrustum(this.knightMode ? "knight" : "overview");
+    this._updateShadowTarget();
+
     if (this.knightMode) {
       this.knightOrbit.yaw = this.knight.yaw + Math.PI + 0.16;
       this.knightOrbit.pitch = 0.24;
@@ -411,7 +611,6 @@ export class SanctuaryViewer {
       target.z + Math.cos(yaw) * horizDist
     );
 
-    // Prevent camera from clipping behind stone columns/cliffs or dropping under water
     if (this.knight.solidMeshes.length > 0) {
       this._camDirTmp.subVectors(this._knightCamGoal, target);
       const wantDist = this._camDirTmp.length();
@@ -481,6 +680,29 @@ export class SanctuaryViewer {
     }
   }
 
+  _buildKnightControls() {
+    this.camera.getWorldDirection(this._camDirTmp);
+    const camYaw = Math.atan2(this._camDirTmp.x, this._camDirTmp.z);
+    const v = this.virtualInput;
+
+    const kFwd = this.keys.has("KeyW") || this.keys.has("ArrowUp") ? 1 : 0;
+    const kBack = this.keys.has("KeyS") || this.keys.has("ArrowDown") ? 1 : 0;
+    const kLeft = this.keys.has("KeyA") || this.keys.has("ArrowLeft") ? 1 : 0;
+    const kRight = this.keys.has("KeyD") || this.keys.has("ArrowRight") ? 1 : 0;
+
+    return {
+      active: true,
+      forward: Math.max(kFwd, Math.max(0, -v.moveY)),
+      backward: Math.max(kBack, Math.max(0, v.moveY)),
+      left: Math.max(kLeft, Math.max(0, -v.moveX)),
+      right: Math.max(kRight, Math.max(0, v.moveX)),
+      sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || v.sprint,
+      jump: this.keys.has("Space") || v.jump,
+      swordReady: this.keys.has("KeyE") || v.swordReady,
+      cameraYaw: camYaw,
+    };
+  }
+
   _startLoop() {
     const tick = () => {
       this.rafId = requestAnimationFrame(tick);
@@ -490,33 +712,29 @@ export class SanctuaryViewer {
       this._updateTransition(performance.now());
       this._updateWalkMovement(dt);
 
-      let knightControls = null;
+      const knightControls = this.knightMode ? this._buildKnightControls() : null;
+      this.knight.update(dt, elapsed, knightControls);
+
       if (this.knightMode) {
-        this.camera.getWorldDirection(this._camDirTmp);
-        const camYaw = Math.atan2(this._camDirTmp.x, this._camDirTmp.z);
-        knightControls = {
-          active: true,
-          forward: this.keys.has("KeyW") || this.keys.has("ArrowUp"),
-          backward: this.keys.has("KeyS") || this.keys.has("ArrowDown"),
-          left: this.keys.has("KeyA") || this.keys.has("ArrowLeft"),
-          right: this.keys.has("KeyD") || this.keys.has("ArrowRight"),
-          sprint: this.keys.has("ShiftLeft") || this.keys.has("ShiftRight"),
-          jump: this.keys.has("Space"),
-          cameraYaw: camYaw,
-        };
+        this._updateShadowTarget();
+        this._updateKnightCamera(dt, false);
       }
 
-      this.knight.update(dt, elapsed, knightControls);
-      this._updateKnightCamera(dt, false);
-
-      this.materialEnhancer.update(dt);
+      const wr = this.knight.wadeRipple;
+      this.materialEnhancer.setKnightRipple(wr.x, wr.z, wr.strength);
+      this.materialEnhancer.update(dt, elapsed);
       this.atmosphere.update(elapsed);
 
       if (!this.walkMode && !this.knightMode) {
         this.controls.update();
       }
 
+      this.renderer.info.reset();
       this.composer.render();
+
+      if (this.perfMonitor.record(dt, this.renderer)) {
+        this.callbacks.onPerfStats?.(this.perfMonitor);
+      }
     };
     tick();
   }
@@ -526,14 +744,17 @@ export class SanctuaryViewer {
     window.removeEventListener("resize", this._onResize);
     window.removeEventListener("keydown", this._onKeyDown);
     window.removeEventListener("keyup", this._onKeyUp);
+    window.removeEventListener("blur", this._onBlur);
     this.canvas.removeEventListener("pointerdown", this._onPointerDown);
     this.canvas.removeEventListener("wheel", this._onWheel);
     window.removeEventListener("pointermove", this._onPointerMove);
     window.removeEventListener("pointerup", this._onPointerUp);
+    window.removeEventListener("pointercancel", this._onPointerUp);
     this.controls.dispose();
     this.knight.dispose();
     this.materialEnhancer.dispose();
     this.atmosphere.dispose();
+    this.smaaPass?.dispose();
     this.composer.dispose();
     this.renderer.dispose();
   }
