@@ -118,6 +118,21 @@ def assign_material(
         obj.data.materials[0] = mat
 
 
+def apply_sharp_edge_shading(
+    bm: bmesh.types.BMesh, sharp_angle_deg: float = 44.0
+) -> None:
+    """Smooth gentle surfaces while marking sharp dihedral creases for crisp rock/stone edges."""
+    thresh = math.radians(sharp_angle_deg)
+    bm.normal_update()
+    for f in bm.faces:
+        f.smooth = True
+    for e in bm.edges:
+        if len(e.link_faces) == 2:
+            e.smooth = e.calc_face_angle(0.0) <= thresh
+        else:
+            e.smooth = False
+
+
 def create_mesh_object(
     name: str,
     bm: bmesh.types.BMesh,
@@ -126,10 +141,13 @@ def create_mesh_object(
     location: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     rotation_deg: Tuple[float, float, float] = (0.0, 0.0, 0.0),
     smooth: bool = False,
+    sharp_angle_deg: Optional[float] = None,
 ) -> bpy.types.Object:
     """Convert a BMesh into a Blender Object with clean normals and link it."""
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    if smooth:
+    if sharp_angle_deg is not None:
+        apply_sharp_edge_shading(bm, sharp_angle_deg=sharp_angle_deg)
+    elif smooth:
         for f in bm.faces:
             f.smooth = True
 
@@ -242,7 +260,7 @@ def add_box_to_bmesh(
 
     if bevel_width > 0.001:
         edges = list({e for v in verts for e in v.link_edges})
-        bmesh.ops.bevel(
+        bev_ret = bmesh.ops.bevel(
             bm,
             geom=edges,
             offset=bevel_width,
@@ -251,6 +269,9 @@ def add_box_to_bmesh(
             affect="EDGES",
             clamp_overlap=True,
         )
+        bev_verts = [v for v in bev_ret.get("verts", []) if v.is_valid]
+        if bev_verts:
+            verts = bev_verts
 
     if noise_amp > 0.0001:
         seed_offset = Vector((0.0, 0.0, 0.0))
@@ -258,8 +279,6 @@ def add_box_to_bmesh(
             seed_offset = Vector(
                 (rng.uniform(-50, 50), rng.uniform(-50, 50), rng.uniform(-50, 50))
             )
-        # Re-gather verts near created faces safely via bounding proximity or bevel return
-        # Since create_cube + bevel only touches newly created geometry, apply noise only if requested before merge
         for v in verts:
             if v.is_valid:
                 p = v.co * noise_scale + seed_offset

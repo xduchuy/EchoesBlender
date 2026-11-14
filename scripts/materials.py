@@ -22,23 +22,76 @@ def _new_material(name: str) -> Tuple[bpy.types.Material, bpy.types.NodeTree, bp
     return mat, nt, bsdf, out
 
 
-def _add_triplanar_stone_coords(nt: bpy.types.NodeTree, pos_out, x_loc: int = -1100):
-    """Build pseudo-triplanar (X+Y, Z) UV vector for mortar joints on vertical walls."""
+def _add_triplanar_stone_coords(nt: bpy.types.NodeTree, pos_out, nrm_out=None, x_loc: int = -1100):
+    """Build true axis-selected triplanar UV coordinates ((X,Z), (Y,Z), or (X,Y)) for stone masonry."""
     sep = nt.nodes.new("ShaderNodeSeparateXYZ")
     sep.location = (x_loc, -250)
     nt.links.new(pos_out, sep.inputs["Vector"])
 
-    add_xy = nt.nodes.new("ShaderNodeMath")
-    add_xy.operation = "ADD"
-    add_xy.location = (x_loc + 180, -180)
-    nt.links.new(sep.outputs["X"], add_xy.inputs[0])
-    nt.links.new(sep.outputs["Y"], add_xy.inputs[1])
+    # Candidate planar projections without X+Y diagonal shearing
+    comb_xz = nt.nodes.new("ShaderNodeCombineXYZ")
+    comb_xz.location = (x_loc + 180, -140)
+    nt.links.new(sep.outputs["X"], comb_xz.inputs["X"])
+    nt.links.new(sep.outputs["Z"], comb_xz.inputs["Y"])
 
-    comb = nt.nodes.new("ShaderNodeCombineXYZ")
-    comb.location = (x_loc + 350, -220)
-    nt.links.new(add_xy.outputs["Value"], comb.inputs["X"])
-    nt.links.new(sep.outputs["Z"], comb.inputs["Y"])
-    return sep, comb
+    if nrm_out is None:
+        return sep, comb_xz
+
+    comb_yz = nt.nodes.new("ShaderNodeCombineXYZ")
+    comb_yz.location = (x_loc + 180, -250)
+    nt.links.new(sep.outputs["Y"], comb_yz.inputs["X"])
+    nt.links.new(sep.outputs["Z"], comb_yz.inputs["Y"])
+
+    comb_xy = nt.nodes.new("ShaderNodeCombineXYZ")
+    comb_xy.location = (x_loc + 180, -360)
+    nt.links.new(sep.outputs["X"], comb_xy.inputs["X"])
+    nt.links.new(sep.outputs["Y"], comb_xy.inputs["Y"])
+
+    abs_n = nt.nodes.new("ShaderNodeVectorMath")
+    abs_n.operation = "ABSOLUTE"
+    abs_n.location = (x_loc - 120, -430)
+    nt.links.new(nrm_out, abs_n.inputs[0])
+
+    sep_n = nt.nodes.new("ShaderNodeSeparateXYZ")
+    sep_n.location = (x_loc + 30, -430)
+    nt.links.new(abs_n.outputs["Vector"], sep_n.inputs["Vector"])
+
+    cmp_xy = nt.nodes.new("ShaderNodeMath")
+    cmp_xy.operation = "GREATER_THAN"
+    cmp_xy.location = (x_loc + 180, -460)
+    nt.links.new(sep_n.outputs["X"], cmp_xy.inputs[0])
+    nt.links.new(sep_n.outputs["Y"], cmp_xy.inputs[1])
+
+    mix_side = nt.nodes.new("ShaderNodeMix")
+    mix_side.data_type = "VECTOR"
+    mix_side.location = (x_loc + 360, -220)
+    nt.links.new(cmp_xy.outputs["Value"], mix_side.inputs["Factor"])
+    nt.links.new(comb_xz.outputs["Vector"], mix_side.inputs[4])
+    nt.links.new(comb_yz.outputs["Vector"], mix_side.inputs[5])
+
+    cmp_top = nt.nodes.new("ShaderNodeMapRange")
+    cmp_top.location = (x_loc + 200, -560)
+    cmp_top.clamp = True
+    cmp_top.inputs["From Min"].default_value = 0.60
+    cmp_top.inputs["From Max"].default_value = 0.78
+    nt.links.new(sep_n.outputs["Z"], cmp_top.inputs["Value"])
+
+    mix_tri = nt.nodes.new("ShaderNodeMix")
+    mix_tri.data_type = "VECTOR"
+    mix_tri.location = (x_loc + 520, -240)
+    nt.links.new(cmp_top.outputs["Result"], mix_tri.inputs["Factor"])
+    nt.links.new(mix_side.outputs[1], mix_tri.inputs[4])
+    nt.links.new(comb_xy.outputs["Vector"], mix_tri.inputs[5])
+
+    # Keep unified `.outputs["Vector"]` contract for brick_warp via Reroute / Separate->Combine wrapper
+    out_comb = nt.nodes.new("ShaderNodeCombineXYZ")
+    out_comb.location = (x_loc + 680, -240)
+    sep_out = nt.nodes.new("ShaderNodeSeparateXYZ")
+    sep_out.location = (x_loc + 600, -240)
+    nt.links.new(mix_tri.outputs[1], sep_out.inputs["Vector"])
+    nt.links.new(sep_out.outputs["X"], out_comb.inputs["X"])
+    nt.links.new(sep_out.outputs["Y"], out_comb.inputs["Y"])
+    return sep, out_comb
 
 
 def build_limestone_material(
@@ -58,7 +111,9 @@ def build_limestone_material(
     geo = nt.nodes.new("ShaderNodeNewGeometry")
     geo.location = (-1350, 0)
 
-    sep_pos, brick_vec = _add_triplanar_stone_coords(nt, geo.outputs["Position"], -1100)
+    sep_pos, brick_vec = _add_triplanar_stone_coords(
+        nt, geo.outputs["Position"], geo.outputs["Normal"], -1100
+    )
 
     # Broad mineral weathering noise
     noise_macro = nt.nodes.new("ShaderNodeTexNoise")
@@ -547,17 +602,17 @@ def build_water_material(name: str = "MAT_Water_Dark") -> bpy.types.Material:
     nt.links.new(noise_broad.outputs["Fac"], rough_map.inputs["Value"])
     nt.links.new(rough_map.outputs["Result"], bsdf.inputs["Roughness"])
 
-    # Dark murky deep green-black water: restrained Specular Level keeps sky glare dark while reflecting towers
-    bsdf.inputs["Base Color"].default_value = COLORS["water_deep"]
+    # Deep green-black flooded water: dark murky absorption + restrained grazing sky glare
+    bsdf.inputs["Base Color"].default_value = (0.004, 0.013, 0.011, 1.0)
     bsdf.inputs["IOR"].default_value = 1.333
-    bsdf.inputs["Specular IOR Level"].default_value = 0.24
-    bsdf.inputs["Transmission Weight"].default_value = 0.0
+    bsdf.inputs["Specular IOR Level"].default_value = 0.34
+    bsdf.inputs["Transmission Weight"].default_value = 0.14
 
-    # Volume absorption for murky depth when rays enter shallow courtyard edges
+    # Strong murky emerald-black volume absorption for shallow courtyard edges
     vol = nt.nodes.new("ShaderNodeVolumeAbsorption")
     vol.location = (600, -240)
-    vol.inputs["Color"].default_value = (0.04, 0.11, 0.09, 1.0)
-    vol.inputs["Density"].default_value = 1.6
+    vol.inputs["Color"].default_value = (0.010, 0.042, 0.034, 1.0)
+    vol.inputs["Density"].default_value = 5.2
     nt.links.new(vol.outputs["Volume"], out.inputs["Volume"])
 
     return mat

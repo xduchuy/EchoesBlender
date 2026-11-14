@@ -1,7 +1,7 @@
 import * as THREE from "three";
 
 /**
- * Compute tileable periodic height value in [0, 1] for seamless procedural canvas textures.
+ * Compute tileable periodic height value in [0, 1] for seamless procedural fallback textures.
  */
 function periodicNoise(u, v, seed) {
   const tau = Math.PI * 2.0;
@@ -29,7 +29,6 @@ export function createProceduralNormalMap(size = 256, scaleStrength = 2.0, seed 
     const v = y / size;
     for (let x = 0; x < size; x++) {
       const u = x / size;
-      // Add deterministic high-frequency speckle
       const hash = Math.sin(x * 12.9898 + y * 78.233 + seed * 37.719) * 43758.5453;
       const rand = hash - Math.floor(hash);
       heights[y * size + x] = periodicNoise(u, v, seed) * 0.8 + rand * 0.2;
@@ -69,7 +68,7 @@ export function createProceduralNormalMap(size = 256, scaleStrength = 2.0, seed 
 }
 
 /**
- * Generate seamless ashlar stone block normal map for Gothic architectural limestone.
+ * Generate seamless ashlar stone block normal map for fallback unbaked stone geometry.
  */
 function createStoneBlockNormalMap(size = 256) {
   const canvas = document.createElement("canvas");
@@ -131,7 +130,7 @@ function createStoneBlockNormalMap(size = 256) {
 }
 
 /**
- * Ensure UV-less procedural Blender BMesh geometry receives clean world-scale triplanar UVs.
+ * Ensure UV-less procedural geometry receives clean world-scale triplanar UVs.
  */
 export function ensureTriplanarUVs(geometry, uvScale = 0.22) {
   if (!geometry || !geometry.attributes?.position) return;
@@ -153,7 +152,6 @@ export function ensureTriplanarUVs(geometry, uvScale = 0.22) {
     let u = 0;
     let v = 0;
     if (ny >= nx && ny >= nz) {
-      // Horizontal surfaces & water plane (Y-up in Three.js)
       u = px * uvScale;
       v = pz * uvScale;
     } else if (nx >= nz) {
@@ -170,14 +168,146 @@ export function ensureTriplanarUVs(geometry, uvScale = 0.22) {
   geometry.setAttribute("uv", new THREE.BufferAttribute(uvArr, 2));
 }
 
+function createLagoonWaterMaterial(waterNormal, uniforms) {
+  const waterMat = new THREE.MeshPhysicalMaterial({
+    name: "MAT_Water_Dark",
+    color: new THREE.Color(0x061918),
+    roughness: 0.085,
+    metalness: 0.08,
+    ior: 1.333,
+    reflectivity: 0.9,
+    envMapIntensity: 1.4,
+    normalMap: waterNormal,
+    normalScale: new THREE.Vector2(0.08, 0.08),
+  });
+
+  waterMat.customProgramCacheKey = () => "sanctuary-lagoon-water-v2";
+  waterMat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = uniforms.uTime;
+    shader.uniforms.uWaterQuality = uniforms.uWaterQuality;
+    shader.uniforms.uKnightPos = uniforms.uKnightPos;
+    shader.uniforms.uKnightWade = uniforms.uKnightWade;
+    shader.uniforms.uDeepColor = uniforms.uDeepColor;
+    shader.uniforms.uShallowColor = uniforms.uShallowColor;
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+varying vec3 vWaterWorldPos;`
+      )
+      .replace(
+        "#include <worldpos_vertex>",
+        `#include <worldpos_vertex>
+vWaterWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;`
+      );
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        "#include <common>",
+        `#include <common>
+uniform float uTime;
+uniform float uWaterQuality;
+uniform vec3 uKnightPos;
+uniform float uKnightWade;
+uniform vec3 uDeepColor;
+uniform vec3 uShallowColor;
+varying vec3 vWaterWorldPos;
+
+vec2 sanctuaryWaveGrad(vec2 p, float t, float q) {
+  vec2 g = vec2(0.0);
+  float w1 = dot(p, vec2(0.68, 0.73)) * 1.35 - t * 1.02;
+  g += vec2(0.68, 0.73) * cos(w1) * 0.030;
+  float w2 = dot(p, vec2(-0.82, 0.57)) * 2.45 + t * 1.38;
+  g += vec2(-0.82, 0.57) * cos(w2) * 0.022;
+  if (q >= 1.0) {
+    float w3 = dot(p, vec2(0.31, -0.95)) * 4.6 - t * 1.88;
+    g += vec2(0.31, -0.95) * cos(w3) * 0.015;
+    float w4 = dot(p, vec2(-0.44, -0.89)) * 7.8 + t * 2.35;
+    g += vec2(-0.44, -0.89) * cos(w4) * 0.010;
+  }
+  if (q >= 2.0) {
+    float w5 = dot(p, vec2(0.91, -0.41)) * 13.2 - t * 3.05;
+    g += vec2(0.91, -0.41) * cos(w5) * 0.006;
+  }
+  if (uKnightWade > 0.004) {
+    vec2 d = p - uKnightPos.xz;
+    float r = length(d);
+    if (r < 9.0) {
+      float ring = cos(r * 7.8 - t * 5.8) * exp(-r * 0.52) * smoothstep(0.18, 0.45, r);
+      vec2 dir = r > 0.001 ? d / r : vec2(0.0);
+      g += dir * ring * 0.09 * uKnightWade;
+    }
+  }
+  return g;
+}`
+      )
+      .replace(
+        "#include <color_fragment>",
+        `#include <color_fragment>
+float rCenter = length(vWaterWorldPos.xz);
+float statueShore = 1.0 - smoothstep(4.2, 13.5, rCenter);
+float causewayDist = length(vec2(max(abs(vWaterWorldPos.x) - 3.2, 0.0), max(12.0 - vWaterWorldPos.z, 0.0) + max(vWaterWorldPos.z - 64.0, 0.0)));
+float causewayShore = 1.0 - smoothstep(0.0, 7.5, causewayDist);
+float outerShore = smoothstep(22.0, 56.0, rCenter);
+float shallow = clamp(max(max(statueShore, causewayShore), outerShore * 0.65), 0.0, 1.0);
+diffuseColor.rgb = mix(uDeepColor, uShallowColor, shallow);`
+      )
+      .replace(
+        "#include <normal_fragment_maps>",
+        `#include <normal_fragment_maps>
+vec2 wg = sanctuaryWaveGrad(vWaterWorldPos.xz, uTime, uWaterQuality);
+vec3 worldRippleN = normalize(vec3(-wg.x, 1.0, -wg.y));
+vec3 viewRippleN = normalize((viewMatrix * vec4(worldRippleN, 0.0)).xyz);
+normal = normalize(mix(normal, viewRippleN, 0.85));`
+      );
+  };
+
+  return waterMat;
+}
+
 export function createSanctuaryMaterialEnhancer() {
   const stoneNormal = createStoneBlockNormalMap(256);
   const cliffNormal = createProceduralNormalMap(256, 3.0, 2.7, 1);
   const barkNormal = createProceduralNormalMap(256, 2.4, 7.1, 1);
-  const waterNormal = createProceduralNormalMap(256, 1.35, 9.4, 1);
+  const waterNormal = createProceduralNormalMap(256, 1.15, 9.4, 1);
+
+  const waterUniforms = {
+    uTime: { value: 0 },
+    uWaterQuality: { value: 2 },
+    uKnightPos: { value: new THREE.Vector3(0, 0, 42.5) },
+    uKnightWade: { value: 0 },
+    uDeepColor: { value: new THREE.Color(0x041514) },
+    uShallowColor: { value: new THREE.Color(0x0e2824) },
+  };
+  const waterMaterial = createLagoonWaterMaterial(waterNormal, waterUniforms);
 
   return {
     waterNormal,
+    waterUniforms,
+
+    setWaterQuality(level) {
+      waterUniforms.uWaterQuality.value = Number(level ?? 2);
+    },
+
+    setWaterMood(moodId) {
+      if (moodId === "moonlight") {
+        waterUniforms.uDeepColor.value.setHex(0x030c12);
+        waterUniforms.uShallowColor.value.setHex(0x081a24);
+      } else if (moodId === "dawn") {
+        waterUniforms.uDeepColor.value.setHex(0x061315);
+        waterUniforms.uShallowColor.value.setHex(0x112423);
+      } else {
+        waterUniforms.uDeepColor.value.setHex(0x041514);
+        waterUniforms.uShallowColor.value.setHex(0x0e2824);
+      }
+    },
+
+    setKnightRipple(x, z, strength) {
+      waterUniforms.uKnightPos.value.set(x, 0, z);
+      waterUniforms.uKnightWade.value = strength;
+    },
+
     enhanceMesh(mesh) {
       if (!mesh.isMesh || !mesh.material) return;
       const mat = mesh.material;
@@ -185,29 +315,49 @@ export function createSanctuaryMaterialEnhancer() {
       const oname = mesh.name || "";
 
       const isWater = mname === "MAT_Water_Dark" || oname.includes("Water");
-      const isCliff = mname === "MAT_Rock_Cliff" || mname === "MAT_Rock_Dark";
-      const isBark = mname === "MAT_Bark_Ancient";
-      const isDistant = oname.includes("Mountains_Distant");
-
-      ensureTriplanarUVs(mesh.geometry, isWater ? 0.045 : isCliff ? 0.09 : 0.24);
+      const isDistant = oname.includes("Mountains_Distant") || mname === "MAT_Dark_Silhouette";
+      const hasBakedAtlas = mname.startsWith("MAT_Baked_") || Boolean(mat.map);
 
       if (isWater) {
+        ensureTriplanarUVs(mesh.geometry, 0.045);
         mesh.castShadow = false;
         mesh.receiveShadow = true;
-        mesh.material = new THREE.MeshStandardMaterial({
-          name: mname,
-          color: new THREE.Color(0x051311),
-          roughness: 0.11,
-          metalness: 0.18,
-          envMapIntensity: 1.55,
-          normalMap: waterNormal,
-          normalScale: new THREE.Vector2(0.16, 0.16),
-        });
+        mesh.material = waterMaterial;
         return;
       }
 
       mesh.castShadow = !isDistant;
       mesh.receiveShadow = true;
+
+      if (hasBakedAtlas) {
+        if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+        if (mat.normalMap && mat.normalScale) {
+          mat.normalScale.set(1.08, 1.08);
+        }
+        if (mat.aoMap) {
+          mat.aoMapIntensity = 0.85;
+        }
+        mat.envMapIntensity = mname.includes("Statue")
+          ? 0.68
+          : mname.includes("HeroArch")
+            ? 0.62
+            : 0.54;
+        mat.needsUpdate = true;
+        return;
+      }
+
+      if (mname === "MAT_Dark_Silhouette" || isDistant) {
+        mat.metalness = 0.0;
+        mat.roughness = 0.96;
+        mat.envMapIntensity = 0.25;
+        mat.needsUpdate = true;
+        return;
+      }
+
+      // Procedural fallback if an unbaked material is ever encountered
+      const isCliff = mname === "MAT_Rock_Cliff" || mname === "MAT_Rock_Dark";
+      const isBark = mname === "MAT_Bark_Ancient";
+      ensureTriplanarUVs(mesh.geometry, isCliff ? 0.09 : 0.24);
 
       const hasVertexColors = Boolean(mesh.geometry.attributes.color);
       const nextMat = new THREE.MeshStandardMaterial({
@@ -235,15 +385,23 @@ export function createSanctuaryMaterialEnhancer() {
 
       mesh.material = nextMat;
     },
-    update(dt) {
-      waterNormal.offset.x = (waterNormal.offset.x + dt * 0.012) % 1.0;
-      waterNormal.offset.y = (waterNormal.offset.y + dt * 0.008) % 1.0;
+
+    update(dt, elapsed = null) {
+      waterNormal.offset.x = (waterNormal.offset.x + dt * 0.01) % 1.0;
+      waterNormal.offset.y = (waterNormal.offset.y + dt * 0.007) % 1.0;
+      if (typeof elapsed === "number") {
+        waterUniforms.uTime.value = elapsed;
+      } else {
+        waterUniforms.uTime.value += dt;
+      }
     },
+
     dispose() {
       stoneNormal.dispose();
       cliffNormal.dispose();
       barkNormal.dispose();
       waterNormal.dispose();
+      waterMaterial.dispose();
     },
   };
 }

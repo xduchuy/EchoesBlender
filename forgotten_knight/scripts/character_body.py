@@ -39,13 +39,13 @@ def _build_torso_and_head(bm, radial_segs: int):
     # Slimmer internal torso/cranial proportions strictly recessed inside plate/helmet shells
     slices = [
         # (center, rx, ry, pinch_back, chest_bulge, spine_groove)
-        (Vector((0.0, 0.005, 0.87)), 0.125, 0.082, 0.010, 0.000, 0.004),
-        (Vector((0.0, 0.002, 0.94)), 0.140, 0.092, 0.014, 0.000, 0.006),  # Pelvis/hips
-        (Vector((0.0, 0.000, 1.03)), 0.128, 0.084, 0.006, 0.004, 0.008),  # Waist narrow
-        (Vector((0.0, -0.005, 1.13)), 0.138, 0.094, 0.008, 0.010, 0.010), # Lower ribs
-        (Vector((0.0, -0.008, 1.25)), 0.156, 0.104, 0.010, 0.014, 0.010), # Mid ribcage
-        (Vector((0.0, -0.010, 1.37)), 0.172, 0.106, 0.010, 0.016, 0.008), # Upper chest strictly inside cuirass
-        (Vector((0.0, -0.008, 1.44)), 0.156, 0.092, 0.008, 0.010, 0.006), # Collar/trapezius
+        (Vector((0.0, 0.005, 0.87)), 0.120, 0.078, 0.010, 0.000, 0.004),
+        (Vector((0.0, 0.002, 0.94)), 0.132, 0.086, 0.014, 0.000, 0.006),  # Pelvis/hips
+        (Vector((0.0, 0.000, 1.03)), 0.120, 0.080, 0.006, 0.004, 0.008),  # Waist narrow
+        (Vector((0.0, -0.005, 1.13)), 0.130, 0.088, 0.008, 0.008, 0.010), # Lower ribs
+        (Vector((0.0, -0.008, 1.25)), 0.144, 0.095, 0.010, 0.012, 0.010), # Mid ribcage
+        (Vector((0.0, -0.010, 1.37)), 0.148, 0.094, 0.010, 0.012, 0.008), # Upper chest recessed inside cuirass
+        (Vector((0.0, -0.008, 1.44)), 0.124, 0.080, 0.008, 0.008, 0.006), # Narrow trapezius inside pauldron/gorget
         (Vector((0.0, -0.010, 1.50)), 0.060, 0.056, 0.002, 0.002, 0.004), # Neck base
         (Vector((0.0, -0.018, 1.57)), 0.050, 0.052, 0.002, 0.000, 0.000), # Neck mid
         (Vector((0.0, -0.022, 1.63)), 0.058, 0.068, 0.000, 0.006, 0.000), # Jaw/skull base inside helmet
@@ -106,28 +106,28 @@ def _build_arms(bm, segs: int):
     # Right arm (-X, raised slightly & angled outward holding sword)
     sr, er, wr, hr = j["shoulder_R"], j["elbow_R"], j["wrist_R"], j["hand_R"]
     pts_r = [
-        (sr + Vector((0.02, 0.0, 0.005)), 0.050, 0.052),
-        (sr.lerp(er, 0.30), 0.048, 0.050),
-        (sr.lerp(er, 0.72), 0.044, 0.045),
-        (er, 0.038, 0.039),
-        (er.lerp(wr, 0.35), 0.041, 0.040),
-        (er.lerp(wr, 0.78), 0.031, 0.030),
-        (wr, 0.026, 0.025),
-        (hr, 0.028, 0.022),
+        (sr + Vector((0.032, 0.0, -0.018)), 0.041, 0.042),
+        (sr.lerp(er, 0.30), 0.042, 0.043),
+        (sr.lerp(er, 0.72), 0.039, 0.040),
+        (er, 0.034, 0.035),
+        (er.lerp(wr, 0.35), 0.036, 0.035),
+        (er.lerp(wr, 0.78), 0.028, 0.027),
+        (wr, 0.023, 0.022),
+        (hr, 0.024, 0.019),
     ]
     _limb_segment(bm, pts_r, segs=segs)
 
     # Left arm (+X, relaxed near hip)
     sl, el, wl, hl = j["shoulder_L"], j["elbow_L"], j["wrist_L"], j["hand_L"]
     pts_l = [
-        (sl + Vector((-0.02, 0.0, 0.005)), 0.050, 0.052),
-        (sl.lerp(el, 0.30), 0.048, 0.050),
-        (sl.lerp(el, 0.72), 0.044, 0.045),
-        (el, 0.038, 0.039),
-        (el.lerp(wl, 0.35), 0.041, 0.040),
-        (el.lerp(wl, 0.78), 0.031, 0.030),
-        (wl, 0.026, 0.025),
-        (hl, 0.028, 0.022),
+        (sl + Vector((-0.032, 0.0, -0.018)), 0.041, 0.042),
+        (sl.lerp(el, 0.30), 0.042, 0.043),
+        (sl.lerp(el, 0.72), 0.039, 0.040),
+        (el, 0.034, 0.035),
+        (el.lerp(wl, 0.35), 0.036, 0.035),
+        (el.lerp(wl, 0.78), 0.028, 0.027),
+        (wl, 0.023, 0.022),
+        (hl, 0.024, 0.019),
     ]
     _limb_segment(bm, pts_l, segs=segs)
 
@@ -182,16 +182,16 @@ def _build_hand_fingers(bm, side: str, segs: int = 8):
             mid_j = Vector((grip_c.x - 0.020, grip_c.y - 0.020 + dy * 0.4, grip_c.z + dz))
             tip = Vector((grip_c.x + 0.016, grip_c.y - 0.004 + dy, grip_c.z + dz))
             pts = [
-                (knuckle, 0.0095, 0.0095),
-                (mid_j, 0.0085, 0.0085),
-                (tip, 0.0070, 0.0070),
+                (knuckle, 0.0074, 0.0074),
+                (mid_j, 0.0066, 0.0066),
+                (tip, 0.0054, 0.0054),
             ]
             _limb_segment(bm, pts, segs=segs)
         # Right thumb locks around front/inner side of grip
         t0 = hand + Vector((0.020, -0.018, 0.032))
         t1 = grip_c + Vector((0.018, -0.016, 0.042))
         t2 = grip_c + Vector((-0.005, -0.022, 0.036))
-        _limb_segment(bm, [(t0, 0.011, 0.011), (t1, 0.010, 0.010), (t2, 0.008, 0.008)], segs=segs)
+        _limb_segment(bm, [(t0, 0.0085, 0.0085), (t1, 0.0078, 0.0078), (t2, 0.0062, 0.0062)], segs=segs)
     else:
         # Left hand relaxed beside thigh with gentle finger curl
         for f_idx in range(4):
@@ -200,12 +200,12 @@ def _build_hand_fingers(bm, side: str, segs: int = 8):
             k = hand + Vector((0.006, off_y, -0.010))
             m = k + Vector((-0.010, off_y * 0.1, -f_len * 0.55))
             t = m + Vector((-0.022, off_y * 0.1, -f_len * 0.45))
-            _limb_segment(bm, [(k, 0.009, 0.009), (m, 0.008, 0.008), (t, 0.0065, 0.0065)], segs=segs)
+            _limb_segment(bm, [(k, 0.0072, 0.0072), (m, 0.0064, 0.0064), (t, 0.0052, 0.0052)], segs=segs)
         # Left thumb forward
         tk = hand + Vector((0.004, -0.036, 0.010))
         tm = tk + Vector((-0.012, -0.016, -0.028))
         tt = tm + Vector((-0.014, -0.005, -0.024))
-        _limb_segment(bm, [(tk, 0.0105, 0.0105), (tm, 0.0095, 0.0095), (tt, 0.0075, 0.0075)], segs=segs)
+        _limb_segment(bm, [(tk, 0.0082, 0.0082), (tm, 0.0074, 0.0074), (tt, 0.0058, 0.0058)], segs=segs)
 
 
 def build_character_body(detail: str = "MEDIUM") -> dict:

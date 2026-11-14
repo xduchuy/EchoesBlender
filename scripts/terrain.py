@@ -56,8 +56,9 @@ def _build_cliff_mass(
     height_fn,
     seed_off: Tuple[float, float, float],
     smooth: bool = False,
+    sharp_angle_deg: float = 42.0,
 ) -> bpy.types.Object:
-    """Generate a stratified rocky cliff mesh from a grid with sharp stepped limestone ledges."""
+    """Generate a stratified rocky cliff mesh with stepped limestone ledges and overhang seams."""
     bm = bmesh.new()
     x0, x1 = bounds_x
     y0, y1 = bounds_y
@@ -77,20 +78,21 @@ def _build_cliff_mass(
             if z_raw > -2.5:
                 p = Vector((x * 0.055, y * 0.055, 0.0)) + off
                 broad = _fbm(p, octaves=4) * 3.8
-                ridge = _ridge_fbm(p * 1.65 + Vector((4.2, -3.1, 1.0)), octaves=4) * 6.4
+                ridge = _ridge_fbm(p * 1.7 + Vector((4.2, -3.1, 1.0)), octaves=4) * 6.2
                 z = z_raw + broad + ridge
-                # Sharp stepped limestone strata ledges (finer 1.4m geological benches)
-                if z > 0.6:
-                    step = 1.45
+                # Sharp stepped limestone strata benches
+                if z > 0.5:
+                    step = 1.35
                     terr = math.floor(z / step) * step
                     frac = (z - terr) / step
-                    sharp = frac ** 2.6
-                    z = terr + step * (0.14 * frac + 0.86 * sharp)
+                    sharp = frac ** 2.7
+                    z = terr + step * (0.12 * frac + 0.88 * sharp)
             else:
                 z = z_raw
-            # Horizontal angular rock overhang / crag perturbation
-            dx = noise.noise(Vector((x * 0.11, y * 0.11, z * 0.14)) + off) * 1.5
-            dy = noise.noise(Vector((x * 0.11 + 7.1, y * 0.11, z * 0.14)) + off) * 1.5
+            # Layered horizontal bedding-plane ledges breaks up vertical face stretching
+            strata_shift = math.sin(z * 1.45 + x * 0.09) * 0.55 if z > 0.2 else 0.0
+            dx = noise.noise(Vector((x * 0.12, y * 0.12, z * 0.22)) + off) * 1.45 + strata_shift
+            dy = noise.noise(Vector((x * 0.12 + 7.1, y * 0.12, z * 0.22)) + off) * 1.45
             row.append(bm.verts.new((x + dx, y + dy, z)))
         grid.append(row)
 
@@ -105,7 +107,7 @@ def _build_cliff_mass(
             except ValueError:
                 pass
 
-    return create_mesh_object(name, bm, col, mat=mat, smooth=smooth)
+    return create_mesh_object(name, bm, col, mat=mat, smooth=smooth, sharp_angle_deg=sharp_angle_deg)
 
 
 def build_terrain_and_cliffs(
@@ -249,31 +251,52 @@ def build_terrain_and_cliffs(
         )
     )
 
-    # 6. Sculpted jagged limestone boulders along cliff bases (proper normal_update + multi-octave crag displacement!)
+    # 6. Stratified layered limestone outcrops along cliff bases (angular geological shelves, zero faceted icospheres)
     rng = get_rng("cliff_outcrops")
     bm_out = bmesh.new()
     boulder_spots = [
-        (-15.5, -52.5, 0.2, 2.4),
-        (-20.0, -45.5, 0.9, 2.9),
-        (-23.5, -36.5, 1.5, 2.7),
-        (35.5, -39.0, 0.4, 2.5),
-        (40.5, -27.0, 1.3, 3.0),
-        (45.5, -14.0, 2.0, 3.3),
+        (-15.5, -52.5, -0.1, 2.5),
+        (-20.0, -45.5, 0.5, 3.0),
+        (-23.5, -36.5, 1.1, 2.8),
+        (35.5, -39.0, 0.1, 2.6),
+        (40.5, -27.0, 0.9, 3.1),
+        (45.5, -14.0, 1.6, 3.4),
     ]
     for bi, (bx, by, bz, brad) in enumerate(boulder_spots):
-        ret = bmesh.ops.create_icosphere(
+        n_layers = 3
+        for li in range(n_layers):
+            scale_l = 1.0 - 0.18 * li
+            off_x = rng.uniform(-0.35, 0.35) * brad
+            off_y = rng.uniform(-0.35, 0.35) * brad
+            ret = bmesh.ops.create_icosphere(
+                bm_out,
+                subdivisions=4 if li == 0 else 3,
+                radius=brad * scale_l,
+                matrix=(
+                    Matrix.Translation((bx + off_x, by + off_y, bz + li * brad * 0.42))
+                    @ Euler((rng.uniform(-0.08, 0.08), rng.uniform(-0.08, 0.08), rng.uniform(0, 6.28)), "XYZ").to_matrix().to_4x4()
+                    @ Matrix.Diagonal((1.45, 1.08, 0.46, 1.0))
+                ),
+            )
+            bm_out.normal_update()
+            off_b = Vector((bi * 7.3 + li * 4.1, -bi * 3.1, 1.9 + li * 2.7))
+            for v in ret["verts"]:
+                p = Vector((v.co.x * 0.48, v.co.y * 0.48, v.co.z * 1.15)) + off_b
+                crag = (_ridge_fbm(p, octaves=4) - 0.30) * (brad * 0.80)
+                v.co += v.normal * crag
+                # Flatten top slightly along natural horizontal limestone bedding plane
+                top_cut = bz + li * brad * 0.42 + brad * scale_l * 0.36
+                if v.co.z > top_cut:
+                    v.co.z = top_cut + (v.co.z - top_cut) * 0.25
+    objs.append(
+        create_mesh_object(
+            "Cliffs_Foreground_Outcrops",
             bm_out,
-            subdivisions=3,
-            radius=brad,
-            matrix=Matrix.Translation((bx, by, bz)) @ Matrix.Diagonal((1.4, 1.1, 0.68, 1.0)),
+            cols["02_CLIFFS"],
+            mat=mats["MAT_Rock_Cliff"],
+            sharp_angle_deg=35.0,
         )
-        bm_out.normal_update()
-        off_b = Vector((bi * 7.3, -bi * 3.1, 1.9))
-        for v in ret["verts"]:
-            p = Vector((v.co.x * 0.42, v.co.y * 0.42, v.co.z * 0.85)) + off_b
-            disp = (_ridge_fbm(p, octaves=3) - 0.32) * (brad * 0.95)
-            v.co += v.normal * disp
-    objs.append(create_mesh_object("Cliffs_Foreground_Outcrops", bm_out, cols["02_CLIFFS"], mat=mats["MAT_Rock_Cliff"], smooth=False))
+    )
 
     return objs
 
@@ -354,7 +377,7 @@ def build_courtyard_and_causeway(
         )
 
     apply_coherent_stone_weathering(bm_ring, amp=0.035, freq=0.6)
-    objs.append(create_mesh_object("Courtyard_Stone_Plaza", bm_ring, col, mat=mats["MAT_Limestone_Wet"]))
+    objs.append(create_mesh_object("Courtyard_Stone_Plaza", bm_ring, col, mat=mats["MAT_Limestone_Wet"], sharp_angle_deg=42.0))
 
     # 2. Foreground Diagonal Causeway (runs from Y=-76 to Y=-11.4 along X=0)
     cw_cfg = LAYOUT["causeway"]
@@ -415,7 +438,7 @@ def build_courtyard_and_causeway(
         cur_y += step_y
 
     apply_coherent_stone_weathering(bm_cw, amp=0.028, freq=0.85, seed_offset=(0.0, -40.0, 0.0))
-    objs.append(create_mesh_object("Causeway_Stone_Bridge", bm_cw, col, mat=mats["MAT_Limestone_Base"]))
+    objs.append(create_mesh_object("Causeway_Stone_Bridge", bm_cw, col, mat=mats["MAT_Limestone_Base"], sharp_angle_deg=42.0))
 
     # 3. Subtle human-scale cloaked pilgrim figure on the causeway (1.75m tall)
     fig_y = cw_cfg["figure_y"]
@@ -499,6 +522,7 @@ def build_flooded_rubble_and_reeds(
                 mat=mats["MAT_Limestone_Wet"],
                 location=loc,
                 rotation_deg=(rng.uniform(-6, 6), rng.uniform(-8, 8), rot_z),
+                sharp_angle_deg=40.0,
             )
         )
 
@@ -516,7 +540,7 @@ def build_flooded_rubble_and_reeds(
         # Stepped entablature moldings & broken stone ribs
         add_box_to_bmesh(bm_tb, (0.0, 0.0, sz[2] * 0.42), (sz[0] * 1.14, sz[1] * 1.14, 0.34), bevel_width=0.04)
         add_box_to_bmesh(bm_tb, (0.0, 0.0, sz[2] * 0.65), (sz[0] * 0.90, sz[1] * 0.90, 0.28), bevel_width=0.04)
-        # Ribbed cornice teeth along top
+        # Ribbed cornice dentils along top
         for ri in range(-2, 3):
             add_box_to_bmesh(bm_tb, (ri * sz[0] * 0.2, 0.0, sz[2] * 0.85), (0.35, sz[1] * 0.85, 0.32), bevel_width=0.03)
         apply_coherent_stone_weathering(bm_tb, amp=0.06, freq=0.65, seed_offset=(idx * 5.0, 0.0, 0.0))
@@ -528,18 +552,39 @@ def build_flooded_rubble_and_reeds(
                 mat=mats["MAT_Submerged_Stone"],
                 location=loc,
                 rotation_deg=rot_d,
+                sharp_angle_deg=40.0,
             )
         )
 
-    # Toppled broken column drums protruding from water
+    # Toppled broken fluted Gothic columns protruding from water
     for ci, (cx_col, cy_col, cz_col, r_col, rot_c) in enumerate([
         (16.0, -42.5, -0.2, 0.68, (76.0, 12.0, 35.0)),
         (-11.0, -37.0, -0.25, 0.62, (82.0, -8.0, -40.0)),
         (26.0, -33.5, -0.2, 0.65, (72.0, 15.0, 15.0)),
     ]):
         bm_col = bmesh.new()
-        bmesh.ops.create_cone(bm_col, cap_ends=True, cap_tris=False, segments=14, radius1=r_col, radius2=r_col * 0.94, depth=3.2)
-        apply_coherent_stone_weathering(bm_col, amp=0.04, freq=1.2, seed_offset=(ci * 3.0, 1.0, 0.0))
+        n_ring_seg = 24
+        n_rings_c = 5
+        depth_c = 3.2
+        c_rings = []
+        for rci in range(n_rings_c + 1):
+            tc = rci / n_rings_c
+            zc = -depth_c * 0.5 + tc * depth_c
+            rad_z = r_col * (1.0 - 0.06 * tc)
+            ring_v = []
+            for sgi in range(n_ring_seg):
+                ang = (sgi / n_ring_seg) * math.tau
+                flute = 1.0 - 0.055 * (0.5 - 0.5 * math.cos(ang * 12.0))
+                z_frac = zc + (0.14 * math.sin(ang * 3.0 + ci) if rci in (0, n_rings_c) else 0.0)
+                ring_v.append(bm_col.verts.new((math.cos(ang) * rad_z * flute, math.sin(ang) * rad_z * flute, z_frac)))
+            c_rings.append(ring_v)
+        bm_col.faces.new(list(reversed(c_rings[0])))
+        bm_col.faces.new(c_rings[-1])
+        for rci in range(n_rings_c):
+            for sgi in range(n_ring_seg):
+                sgj = (sgi + 1) % n_ring_seg
+                bm_col.faces.new([c_rings[rci][sgi], c_rings[rci][sgj], c_rings[rci + 1][sgj], c_rings[rci + 1][sgi]])
+        apply_coherent_stone_weathering(bm_col, amp=0.032, freq=1.2, seed_offset=(ci * 3.0, 1.0, 0.0))
         objs.append(
             create_mesh_object(
                 f"Ruin_Fallen_Column_{ci+1}",
@@ -548,7 +593,7 @@ def build_flooded_rubble_and_reeds(
                 mat=mats["MAT_Submerged_Stone"],
                 location=(cx_col, cy_col, cz_col),
                 rotation_deg=rot_c,
-                smooth=True,
+                sharp_angle_deg=38.0,
             )
         )
 
@@ -576,18 +621,30 @@ def build_flooded_rubble_and_reeds(
             )
         )
 
-    # 4. Instanced reed / tall grass tufts along flooded edges & foreground shoreline
+    # 4. Instanced curved reed / tall sedge grass tufts along flooded edges & foreground shoreline
     bm_tuft = bmesh.new()
-    for bi in range(7):
-        ang = (bi / 7.0) * math.tau + rng.uniform(-0.2, 0.2)
-        tilt = rng.uniform(0.18, 0.45)
-        h = rng.uniform(0.7, 1.35)
-        bx = math.cos(ang) * 0.14
-        by = math.sin(ang) * 0.14
-        v0 = bm_tuft.verts.new((bx - 0.04, by, 0.0))
-        v1 = bm_tuft.verts.new((bx + 0.04, by, 0.0))
-        v2 = bm_tuft.verts.new((bx + math.cos(ang) * tilt, by + math.sin(ang) * tilt, h))
-        bm_tuft.faces.new([v0, v1, v2])
+    for bi in range(8):
+        ang = (bi / 8.0) * math.tau + rng.uniform(-0.22, 0.22)
+        tilt = rng.uniform(0.22, 0.52)
+        h = rng.uniform(0.75, 1.45)
+        bx = math.cos(ang) * 0.13
+        by = math.sin(ang) * 0.13
+        ca, sa = math.cos(ang), math.sin(ang)
+        perp_x, perp_y = -sa, ca
+        w0, w1, w2 = 0.036, 0.024, 0.008
+        v0l = bm_tuft.verts.new((bx - perp_x * w0, by - perp_y * w0, 0.0))
+        v0r = bm_tuft.verts.new((bx + perp_x * w0, by + perp_y * w0, 0.0))
+        v1l = bm_tuft.verts.new((bx + ca * tilt * 0.35 - perp_x * w1, by + sa * tilt * 0.35 - perp_y * w1, h * 0.48))
+        v1r = bm_tuft.verts.new((bx + ca * tilt * 0.35 + perp_x * w1, by + sa * tilt * 0.35 + perp_y * w1, h * 0.48))
+        v2l = bm_tuft.verts.new((bx + ca * tilt * 0.80 - perp_x * w2, by + sa * tilt * 0.80 - perp_y * w2, h * 0.84))
+        v2r = bm_tuft.verts.new((bx + ca * tilt * 0.80 + perp_x * w2, by + sa * tilt * 0.80 + perp_y * w2, h * 0.84))
+        v3 = bm_tuft.verts.new((bx + ca * tilt * 1.10, by + sa * tilt * 1.10, h))
+        bm_tuft.faces.new([v0l, v0r, v1r, v1l])
+        bm_tuft.faces.new([v1l, v1r, v2r, v2l])
+        bm_tuft.faces.new([v2l, v2r, v3])
+    bmesh.ops.recalc_face_normals(bm_tuft, faces=bm_tuft.faces)
+    for f in bm_tuft.faces:
+        f.smooth = True
     tuft_mesh = bpy.data.meshes.new("Reed_Tuft_Mesh")
     bm_tuft.to_mesh(tuft_mesh)
     bm_tuft.free()

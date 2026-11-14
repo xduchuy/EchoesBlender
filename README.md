@@ -1,6 +1,6 @@
-# EchoesBlender — The Drowned Sanctuary (Blender 5.3 + WebGL/Vercel)
+# EchoesBlender V2 — The Drowned Sanctuary & The Forgotten Knight (Blender 5.3 + WebGL/Vercel)
 
-A complete, editable, reproducible **Blender 5.3+** procedural reconstruction of **The Drowned Sanctuary**, paired with an **optimized Draco `.glb` export pipeline** and a **Three.js + Vite interactive 3D web viewer** ready for one-click deployment on **Vercel**.
+A complete, editable, reproducible **Blender 5.3+** procedural reconstruction of **The Drowned Sanctuary** and playable **Forgotten Knight**, paired with **Cycles-baked WebP PBR atlases**, **Draco `.glb` exports**, **9 glTF NLA animation clips**, and a **Three.js + Vite interactive 3D web viewer** ready for deployment on **Vercel**.
 
 ---
 
@@ -8,60 +8,53 @@ A complete, editable, reproducible **Blender 5.3+** procedural reconstruction of
 
 ```text
 EchoesBlender/
-├── index.html                           # Three.js interactive WebGL app entry
-├── package.json                         # Vite + Three.js dependencies & scripts
+├── index.html                           # Three.js WebGL HUD, quality selector & mobile touch UI
+├── package.json                         # Vite + Three.js dependencies & npm test / build scripts
 ├── vite.config.js                       # Vite build & manual chunk config
 ├── vercel.json                          # Vercel static Vite deployment & GLB cache headers
+├── tests/
+│   └── verify_v2.mjs                    # Node test suite validating GLBs, animations, presets & assets
+├── docs/
+│   ├── QUALITY_AUDIT.md                 # V2 pre-overhaul baseline engineering audit
+│   ├── QUALITY_REPORT.md                # V2 visual, geometry & quantitative SSIM/RMSE verification
+│   └── PERFORMANCE_REPORT.md            # V2 bundle sizes, draw calls, presets & timings
 ├── src/
-│   ├── main.js                          # HUD state, camera presets, compare modal & keyboard bindings
-│   ├── styles/main.css                  # Minimalist dark glass UI styling
+│   ├── main.js                          # HUD state, quality/mood cycling, compare modal & touch bindings
+│   ├── styles/main.css                  # Minimalist dark glass desktop + responsive mobile HUD
 │   └── scene/
 │       ├── config.js                    # Blender-synced Y-up camera presets & lighting moods
-│       ├── materials.js                 # Procedural canvas PBR normals & animated water shader
-│       ├── atmosphere.js                # Gradient sky dome, PMREM reflections, mist & dust motes
-│       └── SanctuaryViewer.js           # Three.js renderer, Draco GLTFLoader, Orbit/WASD & Bloom
+│       ├── quality.js                   # Low/Medium/High/Ultra presets, GPU tiering & PerfMonitor
+│       ├── materials.js                 # Baked PBR preservation + 5-octave physical water & ripple shader
+│       ├── knightMaterials.js           # Knight baked PBR atlases + Void/Glass/Flame lookdev materials
+│       ├── KnightCharacter.js           # AnimationMixer (9 GLB clips) + causeway/water collision & wading
+│       ├── atmosphere.js                # Sky cloud bands, dark-ground PMREM bounce, wispy mist & dust
+│       └── SanctuaryViewer.js           # AgX tone mapping, Bloom + SMAA, dynamic shadows & controls
 ├── public/
-│   ├── models/drowned_sanctuary.glb     # Draco-compressed 3D export (148 meshes, 4.10 MB)
+│   ├── models/
+│   │   ├── drowned_sanctuary.glb        # V2 Draco GLB (148 nodes, 15 WebP baked textures, 5.70 MB)
+│   │   └── forgotten_knight.glb         # V2 Draco GLB (30 bones, 9 animations, 12 WebP textures, 2.57 MB)
 │   ├── draco/                           # Local Draco WASM/JS decoder (zero external CDN dependency)
-│   └── images/                          # Reference & final Cycles render for in-app comparison
+│   └── images/                          # Reference & V2 Cycles hero render for in-app comparison
 ├── references/
-│   └── sanctuary_reference.png          # Original reference artwork
-├── scripts/
-│   ├── config.py                        # Quality presets, palette, spatial layout, lighting & cameras
-│   ├── geometry_utils.py                # Collection setup, deterministic RNG, pointed arch & BMesh utils
-│   ├── materials.py                     # Procedural PBR materials (limestone, cliffs, bark, water, fog)
-│   ├── gothic_architecture.py           # Reusable Gothic arch/window/buttress/tower/destruction system
-│   ├── statue.py                        # Multi-layered sculpted central robed stone statue & pedestal
-│   ├── terrain.py                       # Stratified cliffs, flooded basin, courtyard, causeway, shrines & reeds
-│   ├── roots.py                         # Recursive tapered 3D spline root bundles & hanging tendrils
-│   ├── water.py                         # Flooded basin & distant horizon water mesh
-│   ├── atmosphere.py                    # Multi-layer volumetric mist & distant aerial perspective
-│   ├── lighting.py                      # Late-afternoon procedural sky + directional sun + cool fill
-│   ├── cameras.py                       # Tracked cameras, AgX compositor, optional flythrough animation
-│   ├── build_scene.py                   # Master Blender CLI entry point
-│   ├── export_glb.py                    # Blender -> Draco GLB web exporter with baked vertex colors
-│   └── compare_reference.py             # Side-by-side & 50/50 overlay reference comparison generator
-├── output/
-│   └── drowned_sanctuary.blend          # Editable Blender 5.3 project file (163 objects)
-├── renders/
-│   ├── preview.png                      # Fast preview render (960x540)
-│   ├── drowned_sanctuary_final.png      # Final high-resolution Cycles render (2560x1440)
-│   └── comparison_*.png                 # Visual validation comparison sheets
-├── README.md
-└── RECONSTRUCTION_REPORT.md
+│   └── sanctuary_reference.png          # Original sanctuary reference artwork
+├── scripts/                             # Drowned Sanctuary procedural modules, PBR baker & comparison tools
+├── forgotten_knight/                    # Forgotten Knight generators, 30-bone rig, 9 actions & renders
+├── output/                              # Baseline (.blend) & V2 (_v2.blend) Blender scenes
+└── renders/                             # Baseline & V2 Cycles renders + comparison triptychs
 ```
 
 ---
 
-## 1. Web 3D Viewer & Vercel Deployment
+## 1. Web 3D Viewer, Tests & Vercel Deployment
 
 ### Run Locally (Node.js 20+ / 22+)
 ```bash
 npm install
+npm test
 npm run dev
 ```
 
-### Build Production Bundle
+### Build & Preview Production Bundle
 ```bash
 npm run build
 npm run preview
@@ -70,13 +63,15 @@ npm run preview
 ### Deploy on Vercel
 1. Connect **`https://github.com/xduchuy/EchoesBlender`** in the Vercel dashboard.
 2. Leave **Framework Preset** as `Vite`, **Root Directory** as `./`, **Build Command** as `npm run build`, and **Output Directory** as `dist` (configured in `vercel.json`).
-3. Deploy — `public/models/drowned_sanctuary.glb` and `/draco/*` load directly from Vercel's CDN.
+3. Deploy — `public/models/*.glb` and `/draco/*` load directly from Vercel's CDN.
 
 ### Web Viewer Controls
-- **Camera Presets**: `Hero View`, `Architecture`, `Statue`, `Causeway` (converted cleanly from Blender Z-up to glTF Y-up).
-- **Lighting Moods**: Cycle between `Afternoon` (matching the Cycles reference), `Moonlight`, and `Dawn`.
+- **Camera Presets**: `Hero View`, `Knight`, `Architecture`, `Statue`, `Causeway` (converted cleanly from Blender Z-up to glTF Y-up).
+- **Play Knight (`K`)**: Third-person playable **Forgotten Knight** with `WASD`/Arrows movement, `Shift` sprint, `Space` leap, **`E` Sword Ready stance**, water wading ripples, and responsive mobile virtual joystick + Stance/Sprint/Leap buttons on touchscreens.
+- **Lighting Moods**: Cycle between `Afternoon`, `Moonlight`, and `Dawn`.
+- **Quality Presets (`Q`)**: Cycle `Low` / `Medium` / `High` / `Ultra` with live `#perf-stats` FPS, frame-time, and draw-call telemetry.
 - **Explore (`WASD`)**: Free fly/walk exploration (`Shift` sprint, `Q`/`E` down/up, drag mouse to look, `Esc` to exit).
-- **Cycles Render**: Side-by-side comparison modal between `sanctuary_reference.png` and the `2560x1440` Cycles render.
+- **Cycles Render**: Side-by-side comparison modal between `sanctuary_reference.png` and `drowned_sanctuary_final.png`.
 - **Hide UI (`H`)**: Toggle minimal HUD overlay.
 
 ---

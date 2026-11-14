@@ -119,7 +119,8 @@ def _stitch_side_by_side(left_path: str, right_path: str, out_path: str,
 
 
 def run_renders(scene, preset_name: str = "preview", view: str = "all",
-                samples_override: int | None = None, include_closeups: bool = False) -> dict:
+                samples_override: int | None = None, include_closeups: bool = False,
+                output_dir: str | None = None) -> dict:
     """Execute requested camera renders and assemble character_sheet.png."""
     preset = config.QUALITY_PRESETS[preset_name]
     configure_render_engine(scene, preset_name, samples_override=samples_override)
@@ -127,10 +128,12 @@ def run_renders(scene, preset_name: str = "preview", view: str = "all",
     vw, vh = preset["view_width"], preset["view_height"]
     sw, sh = preset["sheet_width"], preset["sheet_height"]
 
-    front_path = os.path.join(config.RENDERS_DIR, "front_view.png")
-    back_path = os.path.join(config.RENDERS_DIR, "back_view.png")
-    sheet_path = os.path.join(config.RENDERS_DIR, "character_sheet.png")
-    preview_path = os.path.join(config.RENDERS_DIR, "preview.png")
+    rdir = output_dir or config.RENDERS_DIR
+    os.makedirs(rdir, exist_ok=True)
+    front_path = os.path.join(rdir, "front_view.png")
+    back_path = os.path.join(rdir, "back_view.png")
+    sheet_path = os.path.join(rdir, "character_sheet.png")
+    preview_path = os.path.join(rdir, "preview.png")
 
     rendered = {}
 
@@ -153,8 +156,8 @@ def run_renders(scene, preset_name: str = "preview", view: str = "all",
 
     if include_closeups:
         dw, dh = preset["detail_width"], preset["detail_height"]
-        helm_path = os.path.join(config.RENDERS_DIR, "helmet_closeup.png")
-        back_det_path = os.path.join(config.RENDERS_DIR, "equipment_closeup.png")
+        helm_path = os.path.join(rdir, "helmet_closeup.png")
+        back_det_path = os.path.join(rdir, "equipment_closeup.png")
         _render_camera_to(scene, "CAM_FRONT_DETAIL", helm_path, dw, dh)
         _render_camera_to(scene, "CAM_BACK_DETAIL", back_det_path, dw, dh)
         rendered["helmet_closeup"] = helm_path

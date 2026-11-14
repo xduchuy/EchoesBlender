@@ -464,17 +464,24 @@ def _build_stone_pedestal_material():
     n_stone.inputs["Roughness"].default_value = 0.76
     links.new(tc.outputs["Object"], n_stone.inputs["Vector"])
 
+    n_warp = nodes.new("ShaderNodeMix")
+    n_warp.data_type = "VECTOR"
+    n_warp.location = (-1200, -560)
+    n_warp.inputs[0].default_value = 0.28
+    links.new(tc.outputs["Object"], n_warp.inputs[4])
+    links.new(n_stone.outputs["Color"], n_warp.inputs[5])
+
     vor_slab = nodes.new("ShaderNodeTexVoronoi")
     vor_slab.location = (-1040, -560)
     vor_slab.feature = "DISTANCE_TO_EDGE"
-    vor_slab.inputs["Scale"].default_value = 3.2
-    links.new(tc.outputs["Object"], vor_slab.inputs["Vector"])
+    vor_slab.inputs["Scale"].default_value = 2.6
+    links.new(n_warp.outputs[1], vor_slab.inputs["Vector"])
 
     ramp_crack = nodes.new("ShaderNodeValToRGB")
     ramp_crack.location = (-780, -560)
     ramp_crack.color_ramp.elements[0].position = 0.00
     ramp_crack.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
-    ramp_crack.color_ramp.elements[1].position = 0.055
+    ramp_crack.color_ramp.elements[1].position = 0.032
     ramp_crack.color_ramp.elements[1].color = (1.0, 1.0, 1.0, 1.0)
     links.new(vor_slab.outputs["Distance"], ramp_crack.inputs["Fac"])
 
@@ -508,8 +515,8 @@ def _build_stone_pedestal_material():
     mix_stone = nodes.new("ShaderNodeMix")
     mix_stone.data_type = "RGBA"
     mix_stone.location = (-680, 220)
-    mix_stone.inputs[6].default_value = (0.072, 0.082, 0.075, 1.0)
-    mix_stone.inputs[7].default_value = (0.148, 0.160, 0.145, 1.0)
+    mix_stone.inputs[6].default_value = (0.042, 0.048, 0.043, 1.0)
+    mix_stone.inputs[7].default_value = (0.098, 0.108, 0.095, 1.0)
     links.new(n_stone.outputs["Fac"], mix_stone.inputs[0])
 
     # Subtle weathered stone mortar crack lines across pedestal floor/rim
@@ -764,6 +771,14 @@ def create_all_materials() -> dict:
     _set_input(bsdf_f, ["Emission Color", "Emission"], (0.92, 0.52, 0.18, 1.0))
     _set_input(bsdf_f, ["Emission Strength"], 1.15)
     mats["MAT_Lantern_Flame"] = mat_flame
+
+    mat_glass, _, _, bsdf_g, _ = _new_material("MAT_Glass_Lantern")
+    bsdf_g.inputs["Base Color"].default_value = (0.85, 0.72, 0.48, 1.0)
+    bsdf_g.inputs["Metallic"].default_value = 0.0
+    bsdf_g.inputs["Roughness"].default_value = 0.28
+    _set_input(bsdf_g, ["Transmission Weight", "Transmission"], 0.72)
+    _set_input(bsdf_g, ["IOR"], 1.50)
+    mats["MAT_Glass_Lantern"] = mat_glass
 
     mat_bg, nodes, links, bsdf_bg, _ = _new_material("MAT_BG_Silhouette")
     bsdf_bg.inputs["Base Color"].default_value = (0.015, 0.022, 0.025, 1.0)

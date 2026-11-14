@@ -24,8 +24,9 @@ def _apply_matrix_to_bmesh(bm, mat: Matrix):
 
 
 def _build_skull_dome(detail_segs: int, mat_xform: Matrix) -> bpy.types.Object:
-    """Construct ogival-domed steel skull with flared rear neck defense."""
+    """Construct smooth ogival-domed steel skull with flared rear neck defense."""
     bm = bmesh.new()
+    segs = max(28, detail_segs)
     cx, cy = 0.0, -0.022
     # Vertical rings from neck skirt up to pointed apex
     profile = [
@@ -44,8 +45,8 @@ def _build_skull_dome(detail_segs: int, mat_xform: Matrix) -> bpy.types.Object:
     rings = []
     for iz, (z, rx, ryf, ryb, ys) in enumerate(profile):
         ring = []
-        for i in range(detail_segs):
-            a = 2.0 * math.pi * i / detail_segs
+        for i in range(segs):
+            a = 2.0 * math.pi * i / segs
             ca = math.cos(a)
             sa = math.sin(a)  # -1 is front (-Y), +1 is back (+Y)
             x = cx + ca * rx
@@ -104,23 +105,25 @@ def _build_central_crest(mat_xform: Matrix) -> bpy.types.Object:
 
 
 def _build_brow_brim(mat_xform: Matrix) -> bpy.types.Object:
-    """Projecting armored eyebrow brim casting shadow across the eye slit."""
+    """Contoured beveled eyebrow brow visor peak flush with the skull & temporal riveted rim."""
     bm = bmesh.new()
-    steps = 16
+    steps = 22
     rings = []
     for i in range(steps):
         t = i / (steps - 1) * 2.0 - 1.0  # -1..+1 around front hemisphere
-        ang = t * 1.48  # radians from front -Y axis
-        x = math.sin(ang) * 0.102
-        y_base = -0.025 - math.cos(ang) * 0.122
-        dip = 0.012 * max(0.0, 1.0 - abs(t) * 2.4)
-        proj = 0.022 * max(0.25, math.cos(ang))
+        ang = t * 1.44
+        x = math.sin(ang) * 0.098
+        ridge = 0.008 * max(0.0, 1.0 - abs(t) * 3.8)
+        y_base = -0.024 - math.cos(ang) * 0.119 - ridge
+        dip = 0.016 * max(0.0, 1.0 - abs(t) * 2.2)
+        proj = 0.015 * max(0.18, math.cos(ang))
+        taper_end = 1.0 - 0.55 * (abs(t) ** 2.2)
         z = 1.716 - dip
         ring = [
-            Vector((x * 0.94, y_base + 0.006, z + 0.008)),
-            Vector((x * 1.03, y_base - proj, z - 0.003)),
-            Vector((x * 1.02, y_base - proj * 0.92, z - 0.011)),
-            Vector((x * 0.94, y_base + 0.008, z - 0.005)),
+            Vector((x * 0.94, y_base + 0.006, z + 0.007 * taper_end)),
+            Vector((x * 1.01, y_base - proj * taper_end, z - 0.002)),
+            Vector((x * 1.00, y_base - proj * 0.85 * taper_end, z - 0.008 * taper_end)),
+            Vector((x * 0.94, y_base + 0.007, z - 0.004 * taper_end)),
         ]
         rings.append(ring)
     config.loft_rings(bm, rings, close_cap_start=True, close_cap_end=True)
@@ -129,32 +132,30 @@ def _build_brow_brim(mat_xform: Matrix) -> bpy.types.Object:
 
 
 def _build_slotted_faceguard(mat_xform: Matrix) -> bpy.types.Object:
-    """Build pointed angular visor faceplate with central nasal rib & vertical slots."""
+    """Build pointed angular visor faceplate with central nasal ridge & tapered Gothic breather slots."""
     bm = bmesh.new()
     cy = -0.024
 
     def _face_pt(ang: float, z: float, r_off: float = 0.0) -> Vector:
-        # Pointed medieval beak profile at front center (ang near 0)
-        beak = 0.022 * max(0.0, 1.0 - abs(ang) * 1.35)
+        # Sharp medieval beak profile at front center (ang near 0)
+        beak = 0.025 * max(0.0, 1.0 - abs(ang) * 1.35)
         rx = 0.095 + r_off
-        ry = 0.118 + beak + r_off
+        ry = 0.119 + beak + r_off
         return Vector((math.sin(ang) * rx, cy - math.cos(ang) * ry, z))
 
-    def _add_bar(ang_min: float, ang_max: float, z_top: float, z_bot: float, thick: float = 0.006):
+    def _add_bar(ang_min: float, ang_max: float, z_top: float, z_bot: float, thick: float = 0.0058):
         steps_u = 4
         steps_v = 5
         front_grid = []
         back_grid = []
         for iu in range(steps_u):
             z = z_top + (z_bot - z_top) * (iu / (steps_u - 1))
-            # Chin tapers narrower toward bottom
             t_z = (1.70 - z) / 0.14
             row_f = []
             row_b = []
             for iv in range(steps_v):
                 a = ang_min + (ang_max - ang_min) * (iv / (steps_v - 1))
-                # Slight inward chin taper
-                taper = -0.008 * max(0.0, t_z)
+                taper = -0.009 * max(0.0, t_z)
                 pf = _face_pt(a, z, r_off=taper)
                 pb = _face_pt(a, z, r_off=taper - thick)
                 row_f.append(bm.verts.new(pf))
@@ -166,7 +167,6 @@ def _build_slotted_faceguard(mat_xform: Matrix) -> bpy.types.Object:
             for iv in range(steps_v - 1):
                 bm.faces.new((front_grid[iu][iv], front_grid[iu][iv + 1], front_grid[iu + 1][iv + 1], front_grid[iu + 1][iv]))
                 bm.faces.new((back_grid[iu][iv + 1], back_grid[iu][iv], back_grid[iu + 1][iv], back_grid[iu + 1][iv + 1]))
-        # Stitch outer box border
         for iv in range(steps_v - 1):
             bm.faces.new((back_grid[0][iv], back_grid[0][iv + 1], front_grid[0][iv + 1], front_grid[0][iv]))
             bm.faces.new((front_grid[-1][iv], front_grid[-1][iv + 1], back_grid[-1][iv + 1], back_grid[-1][iv]))
@@ -174,22 +174,32 @@ def _build_slotted_faceguard(mat_xform: Matrix) -> bpy.types.Object:
             bm.faces.new((back_grid[iu][0], front_grid[iu][0], front_grid[iu + 1][0], back_grid[iu + 1][0]))
             bm.faces.new((front_grid[iu][-1], back_grid[iu][-1], back_grid[iu + 1][-1], front_grid[iu + 1][-1]))
 
-    # Horizontal lower chin border wrapping cheek-to-cheek (leaves top eye slit OPEN!)
-    _add_bar(-1.26, 1.26, 1.592, 1.568, thick=0.0065)
-    # Horizontal cheek rim just beneath the dark narrow horizontal eye slit (eye gap Z ~ 1.693..1.703)
-    _add_bar(-1.26, 1.26, 1.693, 1.678, thick=0.0065)
-    # Bold central vertical nasal rib connecting brow to chin
-    _add_bar(-0.075, 0.075, 1.710, 1.568, thick=0.0085)
+    # Horizontal lower chin border wrapping cheek-to-cheek (leaves narrow eye slit open cleanly)
+    _add_bar(-1.26, 1.26, 1.590, 1.566, thick=0.0062)
+    # Cheek rim below the narrow horizontal eye slit (gap Z ~ 1.692..1.703)
+    _add_bar(-1.26, 1.26, 1.693, 1.675, thick=0.0062)
+    # Bold central vertical nasal rib connecting brow peak to chin
+    _add_bar(-0.072, 0.072, 1.714, 1.566, thick=0.0080)
 
-    # Vertical slotted visor slats on Right (-ang) & Left (+ang) cheeks (5 slats per side)
-    slat_centers = [0.22, 0.42, 0.62, 0.83, 1.06]
+    # Wider forged cheek strips leaving narrow crisp dark breather slots (matches reference visor look!)
+    slat_centers = [0.22, 0.42, 0.62, 0.84, 1.06]
     for s_ang in slat_centers:
-        _add_bar(s_ang - 0.048, s_ang + 0.048, 1.682, 1.588, thick=0.0055)
-        _add_bar(-s_ang - 0.048, -s_ang + 0.048, 1.682, 1.588, thick=0.0055)
+        hw_s = 0.062 - abs(s_ang) * 0.010
+        _add_bar(s_ang - hw_s, s_ang + hw_s, 1.682, 1.584, thick=0.0055)
+        _add_bar(-s_ang - hw_s, -s_ang + hw_s, 1.682, 1.584, thick=0.0055)
 
     # Solid side cheek plates anchoring visor cleanly into skull
-    _add_bar(1.12, 1.38, 1.700, 1.582, thick=0.006)
-    _add_bar(-1.38, -1.12, 1.700, 1.582, thick=0.006)
+    _add_bar(1.12, 1.40, 1.704, 1.578, thick=0.006)
+    _add_bar(-1.40, -1.12, 1.704, 1.578, thick=0.006)
+
+    # Flush central vertical ridge bead along nasal guard matching skull crest
+    crest_pts = [
+        Vector((0.0, cy - 0.141, 1.714)),
+        Vector((0.0, cy - 0.144, 1.655)),
+        Vector((0.0, cy - 0.138, 1.595)),
+        Vector((0.0, cy - 0.131, 1.568)),
+    ]
+    config.tube_along_points(bm, crest_pts, radii=[0.0055, 0.0062, 0.0055, 0.0045], radial_segs=6)
 
     _apply_matrix_to_bmesh(bm, mat_xform)
     return config.finalize_bmesh(bm, "Helm_Faceguard", "03_HELMET", mat_name="MAT_Steel_Dark", smooth=True)

@@ -23,6 +23,7 @@
         <div class="badge-eyebrow">Blender 5.3 Procedural Reconstruction</div>
         <h1 class="badge-title">The Drowned Sanctuary</h1>
         <div class="badge-meta" id="scene-stats">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+        <div class="badge-meta badge-perf" id="perf-stats">AgX PBR · Initializing telemetry…</div>
       </header>
 
       <!-- Bottom Floating Control Bar -->
@@ -40,6 +41,7 @@
         <div class="hud-group">
           <button class="hud-btn accent" id="btn-knight" title="Play as The Forgotten Knight (K)">Play Knight</button>
           <button class="hud-btn" id="btn-mood" title="Cycle lighting mood">Mood: Afternoon</button>
+          <button class="hud-btn" id="btn-quality" title="Cycle render quality preset">Quality: High</button>
           <button class="hud-btn" id="btn-orbit" title="Toggle gentle auto-orbit">Orbit: Off</button>
           <button class="hud-btn" id="btn-walk" title="Free WASD fly camera">Explore</button>
         </div>
@@ -53,6 +55,19 @@
       </nav>
 
       <button id="btn-show-hud" class="hud-surface" title="Show interface (H)">Show UI</button>
+
+      <!-- Mobile Touch Controls (shown on touch/narrow viewports in Knight mode) -->
+      <div id="mobile-controls" hidden aria-label="Touch Knight Controls">
+        <div id="touch-joystick" class="hud-surface" aria-label="Movement stick">
+          <div class="joystick-cross"></div>
+          <div id="touch-knob"></div>
+        </div>
+        <div id="touch-actions">
+          <button type="button" class="touch-action-btn hud-surface" id="touch-btn-sword">Stance</button>
+          <button type="button" class="touch-action-btn hud-surface" id="touch-btn-sprint">Sprint</button>
+          <button type="button" class="touch-action-btn hud-surface accent" id="touch-btn-jump">Leap</button>
+        </div>
+      </div>
 
       <!-- Walk Mode Hint -->
       <div id="walk-hint" class="hud-surface" hidden>

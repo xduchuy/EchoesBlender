@@ -277,17 +277,78 @@ function buildCompositeTabardTexture(woolCanvas, crestTexture) {
 }
 
 export function createKnightMaterialLibrary() {
-  const steel = createSteelMaps();
-  const woolCanvas = createFabricCanvas(256);
-  const fabricMap = makeCanvasTexture(woolCanvas, { srgb: true, repeat: 3 });
-  const fabricBump = createFabricBumpMap();
-  const chainmail = createChainmailMaps();
-  const leather = createLeatherMaps();
+  let fallbackTextures = null;
   const extraTextures = [];
+
+  function ensureFallbackTextures() {
+    if (fallbackTextures) return fallbackTextures;
+    const steel = createSteelMaps();
+    const woolCanvas = createFabricCanvas(256);
+    const fabricMap = makeCanvasTexture(woolCanvas, { srgb: true, repeat: 3 });
+    const fabricBump = createFabricBumpMap();
+    const chainmail = createChainmailMaps();
+    const leather = createLeatherMaps();
+    fallbackTextures = { steel, woolCanvas, fabricMap, fabricBump, chainmail, leather };
+    return fallbackTextures;
+  }
 
   function applyToMaterial(mat) {
     if (!mat || !mat.isMeshStandardMaterial) return;
     const mname = mat.name || "";
+
+    // Special utility/glass/emissive materials first
+    if (mname === "MAT_Helm_Void") {
+      mat.color.set(0x030405);
+      mat.metalness = 0.0;
+      mat.roughness = 0.98;
+      mat.envMapIntensity = 0.1;
+      mat.needsUpdate = true;
+      return;
+    }
+
+    if (mname === "MAT_Lantern_Flame") {
+      mat.color.set(0xffb45c);
+      mat.emissive = new THREE.Color(0xff922c);
+      mat.emissiveIntensity = 3.6;
+      mat.roughness = 0.35;
+      mat.needsUpdate = true;
+      return;
+    }
+
+    if (mname === "MAT_Glass_Lantern") {
+      mat.color.set(0xffe6bf);
+      mat.roughness = 0.12;
+      mat.metalness = 0.05;
+      mat.transparent = true;
+      mat.opacity = 0.28;
+      mat.depthWrite = false;
+      mat.side = THREE.DoubleSide;
+      mat.envMapIntensity = 1.65;
+      mat.needsUpdate = true;
+      return;
+    }
+
+    // Preserve Cycles-baked WebP PBR atlases (BaseColor, Normal, ORM = AO/Roughness/Metallic)
+    if (mname.startsWith("MAT_Baked_") || mat.map) {
+      if (mat.map) mat.map.colorSpace = THREE.SRGBColorSpace;
+      if (mat.aoMap) mat.aoMapIntensity = 0.85;
+      if (mname.includes("Cloth")) {
+        mat.side = THREE.DoubleSide;
+        mat.envMapIntensity = 0.45;
+      } else if (mname.includes("Armor")) {
+        mat.envMapIntensity = 1.15;
+      } else if (mname.includes("Leather")) {
+        mat.envMapIntensity = 0.7;
+      } else {
+        mat.envMapIntensity = 0.65;
+      }
+      mat.needsUpdate = true;
+      return;
+    }
+
+    // Fallback procedural canvas maps for unbaked materials
+    const { steel, woolCanvas, fabricMap, fabricBump, chainmail, leather } =
+      ensureFallbackTextures();
 
     if (mname === "MAT_Steel_Worn") {
       mat.color.set(0xd2d7dc);
@@ -383,15 +444,6 @@ export function createKnightMaterialLibrary() {
       mat.metalness = 0.04;
       mat.roughness = 0.58;
       mat.envMapIntensity = 0.7;
-    } else if (mname === "MAT_Helm_Void") {
-      mat.color.set(0x040506);
-      mat.metalness = 0.0;
-      mat.roughness = 0.98;
-    } else if (mname === "MAT_Lantern_Flame") {
-      mat.color.set(0xffb45c);
-      mat.emissive = new THREE.Color(0xff922c);
-      mat.emissiveIntensity = 3.2;
-      mat.roughness = 0.35;
     }
 
     mat.needsUpdate = true;
@@ -400,15 +452,17 @@ export function createKnightMaterialLibrary() {
   return {
     applyToMaterial,
     dispose() {
-      steel.map.dispose();
-      steel.roughnessMap.dispose();
-      steel.bumpMap.dispose();
-      fabricMap.dispose();
-      fabricBump.dispose();
-      chainmail.map.dispose();
-      chainmail.bumpMap.dispose();
-      leather.map.dispose();
-      leather.bumpMap.dispose();
+      if (fallbackTextures) {
+        fallbackTextures.steel.map.dispose();
+        fallbackTextures.steel.roughnessMap.dispose();
+        fallbackTextures.steel.bumpMap.dispose();
+        fallbackTextures.fabricMap.dispose();
+        fallbackTextures.fabricBump.dispose();
+        fallbackTextures.chainmail.map.dispose();
+        fallbackTextures.chainmail.bumpMap.dispose();
+        fallbackTextures.leather.map.dispose();
+        fallbackTextures.leather.bumpMap.dispose();
+      }
       for (const tex of extraTextures) tex.dispose();
     },
   };

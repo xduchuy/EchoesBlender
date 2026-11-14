@@ -35,47 +35,61 @@ def build_lantern(detail: str = "MEDIUM") -> dict:
     config.tube_along_points(bm_chain, ring_pts, radii=0.0038, radial_segs=6, cap_start=False, cap_end=False)
     chain_obj = config.finalize_bmesh(bm_chain, "Lantern_Chain_Hook", "14_LANTERN", mat_name="MAT_Steel_Dark", smooth=True)
 
-    # 2. Metal Housing: dome cap, lower rim tray, 4 vertical corner guard pillars, bottom finial
+    # 2. Metal Housing: hexagonal stepped dome cap, mid guard band, lower oil reservoir pan, 6 pillars
     bm_frame = bmesh.new()
     cap_slices = [
-        (0.000, 0.008),
-        (-0.012, 0.020),
-        (-0.026, 0.042),
-        (-0.034, 0.046),
-        (-0.042, 0.038),
+        (0.002, 0.007),
+        (-0.008, 0.016),
+        (-0.022, 0.036),
+        (-0.032, 0.047),
+        (-0.038, 0.049),
+        (-0.044, 0.039),
     ]
     rings_cap = []
     for z, r in cap_slices:
-        rings_cap.append([base_xf @ Vector((math.cos(2 * math.pi * k / 8) * r, math.sin(2 * math.pi * k / 8) * r, z)) for k in range(8)])
+        rings_cap.append([base_xf @ Vector((math.cos(2 * math.pi * k / 12) * r, math.sin(2 * math.pi * k / 12) * r, z)) for k in range(12)])
     config.loft_rings(bm_frame, rings_cap, close_cap_start=True, close_cap_end=True)
 
-    # Bottom base pan & finial
+    # Mid equatorial reinforcing ring & bottom oil pan + turned finial
+    band_pts = [base_xf @ Vector((math.cos(2 * math.pi * k / 16) * 0.037, math.sin(2 * math.pi * k / 16) * 0.037, -0.086)) for k in range(17)]
+    config.tube_along_points(bm_frame, band_pts, radii=0.0026, radial_segs=6, cap_start=False, cap_end=False)
+
     base_slices = [
-        (-0.132, 0.036),
-        (-0.144, 0.044),
-        (-0.158, 0.032),
-        (-0.172, 0.006),
+        (-0.130, 0.037),
+        (-0.138, 0.046),
+        (-0.148, 0.044),
+        (-0.160, 0.028),
+        (-0.174, 0.005),
     ]
     rings_bot = []
     for z, r in base_slices:
-        rings_bot.append([base_xf @ Vector((math.cos(2 * math.pi * k / 8) * r, math.sin(2 * math.pi * k / 8) * r, z)) for k in range(8)])
+        rings_bot.append([base_xf @ Vector((math.cos(2 * math.pi * k / 12) * r, math.sin(2 * math.pi * k / 12) * r, z)) for k in range(12)])
     config.loft_rings(bm_frame, rings_bot, close_cap_start=True, close_cap_end=True)
 
-    # 4 vertical corner bars + 2 thin protective cross bands
-    for k in range(4):
-        ang = math.pi * 0.25 + k * math.pi * 0.5
-        p_t = base_xf @ Vector((math.cos(ang) * 0.036, math.sin(ang) * 0.036, -0.038))
-        p_b = base_xf @ Vector((math.cos(ang) * 0.035, math.sin(ang) * 0.035, -0.136))
-        config.tube_along_points(bm_frame, [p_t, p_b], radii=0.0036, radial_segs=6)
+    # 6 vertical corner guard struts
+    for k in range(6):
+        ang = k * math.pi / 3.0
+        p_t = base_xf @ Vector((math.cos(ang) * 0.037, math.sin(ang) * 0.037, -0.040))
+        p_b = base_xf @ Vector((math.cos(ang) * 0.035, math.sin(ang) * 0.035, -0.134))
+        config.tube_along_points(bm_frame, [p_t, p_b], radii=0.0032, radial_segs=6)
 
     housing_obj = config.finalize_bmesh(bm_frame, "Lantern_Frame_Housing", "14_LANTERN", mat_name="MAT_Brass_Aged", smooth=True)
 
-    # 3. Inner Chamber & Dim Candle Ember (grounded muted amber interior, zero magic beam)
+    # 3. Hexagonal Glass Housing Shell + Inner Tallow Candle & Dim Ember Wick
+    bm_glass = bmesh.new()
+    g_rings = [
+        [base_xf @ Vector((math.cos(2 * math.pi * k / 6) * 0.029, math.sin(2 * math.pi * k / 6) * 0.029, -0.043)) for k in range(6)],
+        [base_xf @ Vector((math.cos(2 * math.pi * k / 6) * 0.031, math.sin(2 * math.pi * k / 6) * 0.031, -0.086)) for k in range(6)],
+        [base_xf @ Vector((math.cos(2 * math.pi * k / 6) * 0.028, math.sin(2 * math.pi * k / 6) * 0.028, -0.131)) for k in range(6)],
+    ]
+    config.loft_rings(bm_glass, g_rings, close_cap_start=True, close_cap_end=True)
+    glass_obj = config.finalize_bmesh(bm_glass, "Lantern_Glass_Chamber", "14_LANTERN", mat_name="MAT_Glass_Lantern", smooth=False)
+
     bm_in = bmesh.new()
-    res = bmesh.ops.create_icosphere(bm_in, subdivisions=2, radius=0.022)
+    res = bmesh.ops.create_icosphere(bm_in, subdivisions=2, radius=0.014)
     for v in res["verts"]:
-        v.co.z *= 1.9
-        v.co += Vector((0.0, 0.0, -0.088))
+        v.co.z *= 1.85
+        v.co += Vector((0.0, 0.0, -0.092))
         v.co = base_xf @ v.co
     bm_in.normal_update()
     chamber_obj = config.finalize_bmesh(bm_in, "Lantern_Inner_Chamber", "14_LANTERN", mat_name="MAT_Lantern_Flame", smooth=True)
@@ -86,7 +100,7 @@ def build_lantern(detail: str = "MEDIUM") -> dict:
     light_data.color = (0.95, 0.58, 0.24)
     light_data.shadow_soft_size = 0.03
     light_obj = bpy.data.objects.new(name="Light_Lantern_Wick", object_data=light_data)
-    light_obj.location = base_xf @ Vector((0.0, 0.0, -0.088))
+    light_obj.location = base_xf @ Vector((0.0, 0.0, -0.092))
     config.link_object(light_obj, "14_LANTERN")
 
-    return {"chain": chain_obj, "housing": housing_obj, "chamber": chamber_obj, "light": light_obj}
+    return {"chain": chain_obj, "housing": housing_obj, "glass": glass_obj, "chamber": chamber_obj, "light": light_obj}

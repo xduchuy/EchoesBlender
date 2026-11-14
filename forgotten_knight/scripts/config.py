@@ -200,10 +200,10 @@ SWORD_MAIN = {
 
 # Diagonal back-mounted scabbard & sheathed sword (draped OVER the cape)
 SWORD_BACK = {
-    "pommel_pos": Vector((-0.300, 0.215, 1.665)),
-    "guard_pos": Vector((-0.205, 0.222, 1.385)),
-    "scabbard_top": Vector((-0.195, 0.222, 1.355)),
-    "scabbard_tip": Vector((0.405, 0.190, 0.440)),
+    "pommel_pos": Vector((-0.300, 0.237, 1.665)),
+    "guard_pos": Vector((-0.205, 0.244, 1.385)),
+    "scabbard_top": Vector((-0.195, 0.244, 1.355)),
+    "scabbard_tip": Vector((0.405, 0.212, 0.440)),
 }
 
 # Lantern hanging straight beneath Left hand/hip (clearly left/front of scabbard tip in front view)

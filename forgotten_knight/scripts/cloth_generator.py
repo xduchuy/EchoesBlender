@@ -64,28 +64,31 @@ def _build_neck_scarf(detail: str) -> list:
                 bm.faces.new((vert_rings[i][j], vert_rings[inext][j], vert_rings[inext][jnext], vert_rings[i][jnext]))
         objs.append(config.finalize_bmesh(bm, f"Hood_Scarf_Wrap_{ring_idx+1}", "04_HOOD", mat_name="MAT_Fabric_ForestGreen", smooth=True))
 
-    # 2. Asymmetric ragged front-right draped scarf apron cascading over Right shoulder (-X) & chest
+    # 2. Asymmetric ragged scarf drape cascading across Right shoulder (-X) while revealing Chest Heraldry
     bm_ap = bmesh.new()
-    nu = 16
-    nv = 22
+    nu = 20
+    nv = 28
     grid = []
     for iu in range(nu):
-        tu = iu / (nu - 1)  # 0 inner neck collar (Z=1.50) -> 1 torn chest/shoulder shawl hem
+        tu = iu / (nu - 1)  # 0 inner neck collar (Z=1.505) -> 1 torn shawl hem
         row = []
         for iv in range(nv):
             tv = iv / (nv - 1)
-            ang = -4.08 + tv * 2.95  # Wraps fully across Right shoulder/upper arm & front pectoral
+            # Wrap from rear-right (-4.00 rad) over Right shoulder (-pi) to upper-chest center (-1.28 rad)
+            ang = -4.00 + tv * 2.72
             ca, sa = math.cos(ang), math.sin(ang)
 
-            drape_len = 0.27 + 0.08 * math.sin(tv * math.pi * 1.15)
-            rag = (math.sin(tv * 25.0) * 0.022 + math.cos(tv * 41.0) * 0.014) * (tu ** 1.8)
+            # Long ragged cascade over Right shoulder/pec (tv ~ 0.28..0.55), lifted neatly over central chest cross!
+            chest_lift = max(0.0, (tv - 0.58) / 0.42) ** 1.35
+            drape_len = (0.28 + 0.07 * math.sin(tv * math.pi * 1.1)) * (1.0 - 0.46 * chest_lift)
+            rag = (math.sin(tv * 24.0) * 0.020 + math.cos(tv * 39.0) * 0.012) * (tu ** 1.7)
             z = 1.505 - tu * drape_len + rag
 
-            rad_x = 0.144 + tu * (0.175 * max(0.0, -ca) + 0.052)
-            rad_y = 0.148 + tu * (0.056 * max(0.0, -sa) + 0.022 * max(0.0, sa))
-            fold = (math.sin(tv * 16.0 - tu * 3.0) * 0.014 + math.cos(tv * 8.5) * 0.008) * (0.20 + 0.80 * tu)
+            rad_x = 0.144 + tu * (0.178 * max(0.0, -ca) + 0.044)
+            rad_y = 0.148 + tu * (0.048 * max(0.0, -sa) + 0.018 * max(0.0, sa))
+            fold = (math.sin(tv * 16.0 - tu * 3.0) * 0.012 + math.cos(tv * 8.5) * 0.007) * (0.20 + 0.80 * tu)
             x = ca * (rad_x + fold)
-            y = sa * (rad_y + fold) - 0.016
+            y = sa * (rad_y + fold) - 0.014
             row.append(bm_ap.verts.new(Vector((x, y, z))))
         grid.append(row)
 
@@ -93,40 +96,37 @@ def _build_neck_scarf(detail: str) -> list:
         for iv in range(nv - 1):
             bm_ap.faces.new((grid[iu][iv], grid[iu][iv+1], grid[iu+1][iv+1], grid[iu+1][iv]))
     apron = config.finalize_bmesh(bm_ap, "Hood_Scarf_Drape", "04_HOOD", mat_name="MAT_Fabric_ForestGreen", smooth=True)
-    config.add_solidify(apron, thickness=0.005, offset=1.0)
+    config.add_solidify(apron, thickness=0.0045, offset=1.0)
     objs.append(apron)
 
-    # 3. Clean rear hood/nape mantle wrapping behind helmet base & neck onto upper cloak (NO skull clipping!)
+    # 3. Clean rear hood/nape mantle wrapping outside upper cape collar (zero clipping!)
     bm_hd = bmesh.new()
-    h_u, h_v = 16, 20
+    h_u, h_v = 18, 24
     grid_h = []
     for iu in range(h_u):
-        tu = iu / (h_u - 1)  # 0 tucked neatly along nape behind Helm_Skull (Z~1.64) -> 1 torn shoulder mantle
+        tu = iu / (h_u - 1)  # 0 tucked along nape behind Helm_Skull (Z~1.64) -> 1 shoulder mantle hem (Z~1.39)
         row = []
         for iv in range(h_v):
             tv = iv / (h_v - 1) * 2.0 - 1.0  # -1 Right (-X) .. +1 Left (+X)
-            ang = math.pi * 0.5 + tv * (1.06 + 0.48 * tu)
+            ang = math.pi * 0.5 + tv * (1.06 + 0.44 * tu)
             ca, sa = math.cos(ang), math.sin(ang)
 
-            # Clear Helm_Skull rear curve (Z=1.64 radius ~0.115) comfortably by >1.5cm at top, then flare onto cape
-            shoulder_flare = 0.148 * (max(0.0, tu - 0.28) / 0.72) ** 1.25
-            rx = 0.112 + tu * 0.028 + shoulder_flare
-            ry = 0.128 + tu * 0.032 + shoulder_flare * 0.20
+            shoulder_flare = 0.154 * (max(0.0, tu - 0.25) / 0.75) ** 1.25
+            rx = 0.118 + tu * 0.032 + shoulder_flare
+            ry = 0.138 + tu * 0.044 + shoulder_flare * 0.22
 
-            crown_arch = -0.052 * (tv * tv) * (1.0 - tu * 0.50)
-            rag = (math.sin(tv * 19.0 + 0.9) * 0.022 + math.cos(tv * 31.0 - 0.5) * 0.014 + 0.016 * (-tv)) * (tu ** 2.4)
-            fold = (math.sin(tv * 14.0 + tu * 2.5) * 0.008 + math.cos(tv * 7.0) * 0.006) * min(1.0, tu * 1.4)
+            crown_arch = -0.048 * (tv * tv) * (1.0 - tu * 0.50)
+            rag = (math.sin(tv * 19.0 + 0.9) * 0.018 + math.cos(tv * 31.0 - 0.5) * 0.011 + 0.014 * (-tv)) * (tu ** 2.4)
+            fold = (math.sin(tv * 14.0 + tu * 2.5) * 0.007 + math.cos(tv * 7.0) * 0.005) * min(1.0, tu * 1.4)
 
-            z = 1.635 + crown_arch - tu * 0.245 - 0.030 * (tv * tv) * tu + rag
+            z = 1.635 + crown_arch - tu * 0.235 - 0.024 * (tv * tv) * tu + rag
             x = ca * (rx + fold)
-            y = -0.016 + sa * (ry + fold) + tu * 0.022
+            y = 0.002 + sa * (ry + fold) + tu * 0.030
             row.append(bm_hd.verts.new(Vector((x, y, z))))
         grid_h.append(row)
 
     for iu in range(h_u - 1):
         for iv in range(h_v - 1):
-            if (iu == h_u - 3 and iv in (5, 13)) or (iu == h_u - 4 and iv == 9):
-                continue
             bm_hd.faces.new((grid_h[iu][iv], grid_h[iu][iv+1], grid_h[iu+1][iv+1], grid_h[iu+1][iv]))
 
     hood_obj = config.finalize_bmesh(bm_hd, "Hood_Rear_Cowl", "04_HOOD", mat_name="MAT_Fabric_Cape", smooth=True)
@@ -212,6 +212,11 @@ def _build_back_cape(detail: str) -> list:
     nu = 28 if detail != "LOW" else 18
     nv = 24 if detail != "LOW" else 14
 
+    sb = config.SWORD_BACK
+    scab_top = sb["scabbard_top"]
+    scab_tip = sb["scabbard_tip"]
+    nu = 24
+    nv = 30
     grid = []
     for iu in range(nu):
         tu = iu / (nu - 1)
@@ -219,62 +224,67 @@ def _build_back_cape(detail: str) -> list:
         for iv in range(nv):
             tv = iv / (nv - 1) * 2.0 - 1.0  # -1 Right (-X) .. +1 Left (+X)
 
-            # Broader curved shoulder collar arching smoothly from cowl/collar down into draped skirt
+            # Broader curved shoulder collar tucked strictly inside Hood_Rear_Cowl top -> draped tattered cloak
             if tu < 0.22:
-                half_w = 0.225 + 0.040 * math.sin((tu / 0.22) * math.pi * 0.5)
+                half_w = 0.215 + 0.038 * math.sin((tu / 0.22) * math.pi * 0.5)
             else:
-                half_w = 0.255 + 0.070 * math.sin((tu - 0.22) * 1.4) - 0.040 * ((tu - 0.22) ** 1.35)
+                half_w = 0.245 + 0.068 * math.sin((tu - 0.22) * 1.4) - 0.038 * ((tu - 0.22) ** 1.35)
 
-            asym_shift = -0.028 * (tu ** 1.05)
+            asym_shift = -0.026 * (tu ** 1.05)
             x_base = tv * half_w + asym_shift
-            wrap_curve = 0.072 * (1.0 - tv * tv)
-            y_base = 0.088 + 0.082 * min(1.0, tu * 2.2) + wrap_curve
+            wrap_curve = 0.062 * (1.0 - tv * tv)
+            # Stay tucked cleanly inside Hood_Rear_Cowl near top collar (tu < 0.16), drape back gracefully below
+            collar_tuck = 0.068 * max(0.0, 1.0 - tu / 0.18)
+            y_base = 0.088 + 0.072 * min(1.0, tu * 2.2) + wrap_curve - collar_tuck
 
-            z_raw = 1.505 - tu * 1.265 - 0.028 * (tv * tv) * (1.0 - tu)
-            scab_t = max(0.0, min(1.0, (1.355 - z_raw) / (1.355 - 0.455)))
-            scab_x = -0.195 + scab_t * (0.355 - (-0.195))
-            dist_scab = abs(x_base - scab_x)
-            cinch = 0.028 * math.exp(-((dist_scab / 0.085) ** 2)) * (1.0 if 0.08 < tu < 0.72 else 0.3)
+            z_raw = 1.485 - tu * 1.255 - 0.026 * (tv * tv) * (1.0 - tu)
+            scab_t = max(0.0, min(1.0, (scab_top.z - z_raw) / max(0.01, scab_top.z - scab_tip.z)))
+            scab_pos = scab_top.lerp(scab_tip, scab_t)
+            dist_scab = abs(x_base - scab_pos.x)
+            # Smooth wide Gaussian cinch under diagonal back scabbard (zero sharp polygonal creases!)
+            cinch_gauss = math.exp(-((dist_scab / 0.115) ** 2))
+            cinch = 0.030 * cinch_gauss * (1.0 if 0.08 < tu < 0.86 else 0.35)
 
             pleat = (
-                math.sin(tv * 16.5 + tu * 2.0) * (0.010 + 0.024 * tu)
-                + math.cos(tv * 9.0 - tu * 1.4) * (0.006 + 0.016 * tu)
-            ) * (0.30 + 0.70 * (1.0 - math.exp(-((dist_scab / 0.07) ** 2)) * 0.4))
+                math.sin(tv * 16.5 + tu * 2.0) * (0.009 + 0.022 * tu)
+                + math.cos(tv * 9.0 - tu * 1.4) * (0.005 + 0.014 * tu)
+            ) * (0.30 + 0.70 * (1.0 - cinch_gauss * 0.45))
 
-            left_retract = 0.068 * max(0.0, tv - 0.30) * (tu ** 0.95) if tu > 0.22 else 0.0
+            left_retract = 0.065 * max(0.0, tv - 0.30) * (tu ** 0.95) if tu > 0.22 else 0.0
             rag = (
-                math.sin(tv * 22.0 + 0.7) * 0.055
-                + math.cos(tv * 37.0 - 0.4) * 0.032
-                + (0.078 if tv > 0.35 else -0.028)
+                math.sin(tv * 22.0 + 0.7) * 0.048
+                + math.cos(tv * 37.0 - 0.4) * 0.028
+                + (0.072 if tv > 0.35 else -0.024)
             ) * (tu ** 2.4)
 
             z = z_raw + left_retract * 1.4 + rag
             y = y_base + pleat - cinch - left_retract * 0.4
 
-            y_scab = 0.222 + scab_t * (0.215 - 0.222)
-            if dist_scab < 0.070 and 0.10 < tu < 0.88:
-                y = min(y, y_scab - 0.020)
+            # Smoothly depress cape surface behind SWORD_BACK & baldric with soft falloff instead of hard min() step
+            max_y_allowed = scab_pos.y - 0.032
+            if y > max_y_allowed and 0.06 < tu < 0.94:
+                y = y * (1.0 - cinch_gauss) + max_y_allowed * cinch_gauss
 
             row.append(bm.verts.new(Vector((x_base, y, z))))
         grid.append(row)
 
     holes = {
-        (nu - 7, 14), (nu - 6, 14), (nu - 6, 15),
-        (nu - 9, 8), (nu - 8, 8),
-        (nu - 4, 5), (nu - 5, 5),
-        (nu - 4, 17), (nu - 3, 17),
+        (nu - 7, 20), (nu - 6, 20), (nu - 6, 21),
+        (nu - 10, 11), (nu - 9, 11),
+        (nu - 5, 7), (nu - 4, 7),
+        (nu - 4, 24), (nu - 3, 24),
     }
 
     for iu in range(nu - 1):
         for iv in range(nv - 1):
             if (iu, iv) in holes:
                 continue
-            if iu >= nu - 3 and iv in (4, 10, 15, 19):
+            if iu >= nu - 3 and iv in (5, 13, 21, 26):
                 continue
             bm.faces.new((grid[iu][iv], grid[iu][iv+1], grid[iu+1][iv+1], grid[iu+1][iv]))
 
     cape = config.finalize_bmesh(bm, "Cape_Back_Cloak", "10_CAPE", mat_name="MAT_Fabric_Cape", smooth=True)
-    config.add_solidify(cape, thickness=0.005, offset=1.0)
+    config.add_solidify(cape, thickness=0.0045, offset=1.0)
     return [cape]
 
 
