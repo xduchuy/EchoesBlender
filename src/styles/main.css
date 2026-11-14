@@ -210,6 +210,12 @@ body,
   border-color: var(--edge-strong);
 }
 
+.hud-btn.accent.active {
+  background: rgba(199, 174, 118, 0.28);
+  border-color: var(--edge-strong);
+  color: #fff6df;
+}
+
 #btn-show-hud {
   position: fixed;
   right: 18px;

@@ -10,6 +10,12 @@ export const CAMERA_PRESETS = {
     target: [-1.5, 7.6, -6.5],
     fov: 35,
   },
+  knight: {
+    label: "Knight",
+    position: [-1.8, 2.25, 46.3],
+    target: [0.0, 1.9, 36.0],
+    fov: 40,
+  },
   arch: {
     label: "Architecture",
     position: [5.0, 16.0, 45.0],
