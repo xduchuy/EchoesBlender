@@ -1,0 +1,34 @@
+{
+  "quality": "final",
+  "detail": "HIGH",
+  "elapsed_sec": 2490.9,
+  "validation": {
+    "height_m": 1.8608,
+    "boot_l_min_z": -0.0,
+    "boot_r_min_z": -0.0,
+    "pedestal_top_z": 0.0404,
+    "sword_tip_z": 0.0039,
+    "missing_materials": [],
+    "missing_collections": [],
+    "unshaded_meshes": [],
+    "total_vertices": 75868,
+    "total_polygons": 76054,
+    "rig_bones": 30,
+    "rigid_bound_meshes": 60,
+    "deform_bound_meshes": 16,
+    "has_cape_folds": true,
+    "has_back_scabbard": true,
+    "has_lantern": true,
+    "warnings": [],
+    "passed": true
+  },
+  "blend": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\output\\forgotten_knight.blend",
+  "glb": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\output\\forgotten_knight.glb",
+  "renders": {
+    "front_view": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\renders\\front_view.png",
+    "back_view": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\renders\\back_view.png",
+    "character_sheet": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\renders\\character_sheet.png",
+    "helmet_closeup": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\renders\\helmet_closeup.png",
+    "equipment_closeup": "C:\\Users\\Admin\\OneDrive\\Pictures\\echos blender\\forgotten_knight\\renders\\equipment_closeup.png"
+  }
+}
