@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Drowned Sanctuary — 3D Interactive Reconstruction</title>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="sanctuary-canvas"></canvas>
+      <div class="vignette" aria-hidden="true"></div>
+
+      <!-- Loading Overlay -->
+      <div id="loader" role="status" aria-live="polite">
+        <div class="loader-title">The Drowned Sanctuary</div>
+        <div class="loader-rule"></div>
+        <div class="loader-bar"><div id="loader-fill"></div></div>
+        <div id="loader-status">Loading Blender 3D Sanctuary…</div>
+      </div>
+
+      <!-- Top-left Identity Badge -->
+      <header id="title-badge" class="hud-surface">
+        <div class="badge-eyebrow">Blender 5.3 Procedural Reconstruction</div>
+        <h1 class="badge-title">The Drowned Sanctuary</h1>
+        <div class="badge-meta" id="scene-stats">Drag to orbit · Scroll to zoom · Right-drag to pan</div>
+      </header>
+
+      <!-- Bottom Floating Control Bar -->
+      <nav id="hud" class="hud-surface" aria-label="3D Viewer Controls">
+        <div class="hud-group" id="camera-buttons">
+          <button class="hud-btn active" data-cam="hero">Hero View</button>
+          <button class="hud-btn" data-cam="arch">Architecture</button>
+          <button class="hud-btn" data-cam="statue">Statue</button>
+          <button class="hud-btn" data-cam="causeway">Causeway</button>
+        </div>
+
+        <div class="hud-sep"></div>
+
+        <div class="hud-group">
+          <button class="hud-btn" id="btn-mood" title="Cycle lighting mood">Mood: Afternoon</button>
+          <button class="hud-btn" id="btn-orbit" title="Toggle gentle auto-orbit">Orbit: Off</button>
+          <button class="hud-btn" id="btn-walk" title="Free WASD fly/walk mode">Explore</button>
+        </div>
+
+        <div class="hud-sep"></div>
+
+        <div class="hud-group">
+          <button class="hud-btn accent" id="btn-compare" title="Compare with Cycles 2560x1440 render">Cycles Render</button>
+          <button class="hud-btn" id="btn-hide-hud" title="Toggle HUD (H)">Hide UI</button>
+        </div>
+      </nav>
+
+      <button id="btn-show-hud" class="hud-surface" title="Show interface (H)">Show UI</button>
+
+      <!-- Walk Mode Hint -->
+      <div id="walk-hint" class="hud-surface" hidden>
+        WASD / Arrow keys to move · Q/E down/up · Shift sprint · Drag mouse to look · Press Explore or Esc to exit
+      </div>
+
+      <!-- Cycles Render & Reference Comparison Modal -->
+      <div id="compare-modal" hidden role="dialog" aria-modal="true" aria-label="Cycles Render Comparison">
+        <div class="modal-backdrop" id="modal-backdrop"></div>
+        <div class="modal-card hud-surface">
+          <div class="modal-head">
+            <div>
+              <div class="badge-eyebrow">Offline Raytraced Benchmark</div>
+              <h2>Cycles Render vs. Reference Artwork</h2>
+            </div>
+            <button class="hud-btn" id="btn-close-modal">Close</button>
+          </div>
+          <div class="modal-grid">
+            <figure>
+              <img src="/images/sanctuary_reference.png" alt="Original sanctuary reference artwork" />
+              <figcaption>Original Reference (sanctuary_reference.png)</figcaption>
+            </figure>
+            <figure>
+              <img src="/images/drowned_sanctuary_final.png" alt="Blender 5.3 Cycles 2560x1440 final render" />
+              <figcaption>Blender 5.3 Cycles Render (2560×1440, 128 samples + OIDN)</figcaption>
+            </figure>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>
