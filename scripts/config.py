@@ -116,9 +116,27 @@ COLORS = {
 }
 
 
+# Monument mode: "ROOTBOUND_SAINT" (upgraded V3 central monument) or "LEGACY" (V1/V2 regression baseline)
+MONUMENT_MODE = "ROOTBOUND_SAINT"
+
 # World spatial layout (metric scale, Z=0 is water level)
 LAYOUT = {
     "water_level": 0.0,
+    "monument_mode": MONUMENT_MODE,
+    "rootbound_saint": {
+        "center": (0.0, 2.0, 0.0),
+        "rotation_z_deg": -12.0,
+        "outer_curb_radius": 8.25,
+        "terrace_wall_radius": 7.35,
+        "terrace_inner_radius": 6.55,
+        "terrace_wall_top_z": 1.82,
+        "balustrade_top_z": 2.94,
+        "upper_gallery_z": 2.32,
+        "pedestal_radius": 2.18,
+        "pedestal_top_z": 3.85,
+        "statue_height": 13.40,
+        "halo_top_z": 18.35,
+    },
     "courtyard": {
         "center": (0.0, 2.0, 0.0),
         "ring_radius": 13.6,
@@ -136,7 +154,7 @@ LAYOUT = {
     },
     "causeway": {
         "start_xy": (0.0, -78.0),
-        "end_xy": (0.0, -11.4),
+        "end_xy": (0.0, -5.65) if MONUMENT_MODE == "ROOTBOUND_SAINT" else (0.0, -11.4),
         "width": 3.25,
         "base_z": -2.5,
         "top_z": 0.42,
@@ -226,6 +244,34 @@ LAYOUT = {
             "location": (-4.5, -62.0, 3.8),
             "target": (0.0, 2.0, 12.0),
             "lens": 35.0,
+            "sensor_width": 36.0,
+            "dof_enable": False,
+        },
+        "CAM_ROOTBOUND_HERO": {
+            "location": (2.2, -25.5, 19.8),
+            "target": (0.0, 2.0, 7.6),
+            "lens": 28.0,
+            "sensor_width": 36.0,
+            "dof_enable": False,
+        },
+        "CAM_ROOTBOUND_FRONT": {
+            "location": (0.9, -11.2, 13.8),
+            "target": (0.0, 1.8, 13.1),
+            "lens": 38.0,
+            "sensor_width": 36.0,
+            "dof_enable": False,
+        },
+        "CAM_ROOTBOUND_REAR": {
+            "location": (-4.8, 28.5, 16.5),
+            "target": (0.0, 2.0, 7.8),
+            "lens": 30.0,
+            "sensor_width": 36.0,
+            "dof_enable": False,
+        },
+        "CAM_ROOTBOUND_DETAIL": {
+            "location": (-5.8, -14.8, 8.6),
+            "target": (0.2, 1.5, 2.1),
+            "lens": 34.0,
             "sensor_width": 36.0,
             "dof_enable": False,
         },

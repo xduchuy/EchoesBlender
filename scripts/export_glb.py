@@ -141,10 +141,33 @@ def _simplify_silhouette_for_gltf() -> None:
             bsdf.inputs["Roughness"].default_value = 0.85
 
 
+def _simplify_collision_for_gltf() -> None:
+    """Assign an ultra-light matte material to hidden Rootbound Saint collision proxies."""
+    col_names = ("Collision_Terrace", "Collision_Stairs", "Collision_Pedestal")
+    objs = [bpy.data.objects.get(n) for n in col_names]
+    objs = [o for o in objs if o is not None and o.type == "MESH"]
+    if not objs:
+        return
+    mat = bpy.data.materials.get("MAT_Collision_Hidden") or bpy.data.materials.new("MAT_Collision_Hidden")
+    mat.use_nodes = True
+    nt = mat.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new("ShaderNodeOutputMaterial")
+    bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+    bsdf.inputs["Base Color"].default_value = (0.05, 0.05, 0.05, 1.0)
+    bsdf.inputs["Roughness"].default_value = 0.95
+    nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+    for o in objs:
+        o.data.materials.clear()
+        o.data.materials.append(mat)
+        o.hide_render = True
+
+
 def _collect_atlas_groups() -> List[tuple[str, int, List[bpy.types.Object], float]]:
-    """Group Sanctuary objects into 5 tightly packed PBR atlases without merging meshes."""
+    """Group Sanctuary objects into tightly packed PBR atlases without merging meshes."""
     all_objs = {o.name: o for o in bpy.data.objects}
-    assigned = {"Water_Flooded_Basin", "Causeway_Scale_Figure"}
+    collision_names = {"Collision_Terrace", "Collision_Stairs", "Collision_Pedestal"}
+    assigned = {"Water_Flooded_Basin", "Causeway_Scale_Figure", *collision_names}
 
     def _pick(names: Sequence[str]) -> List[bpy.types.Object]:
         out = []
@@ -178,7 +201,8 @@ def _collect_atlas_groups() -> List[tuple[str, int, List[bpy.types.Object], floa
         "Tower_RightRear_Belfry",
     ])
 
-    # 2. Central Monumental Statue + Pedestal -> 1024px
+    # 2. Central Monument: V3 Rootbound Saint (2048px) OR Legacy Statue (1024px)
+    rootbound_objs = _pick_collection("05_ROOTBOUND_SAINT", exclude_names=collision_names)
     statue_objs = _pick_collection("05_STATUE")
 
     # 3. Foreground & Midground Stratified Cliffs -> 1024px (separated from Terrain_Seabed for crisp detail)
@@ -199,13 +223,19 @@ def _collect_atlas_groups() -> List[tuple[str, int, List[bpy.types.Object], floa
         + _pick_collection("03_ARCHITECTURE")
     )
 
-    return [
+    groups: List[tuple[str, int, List[bpy.types.Object], float]] = [
         ("Sanctuary_HeroArch", 2048, hero_arch, 2.8),
-        ("Sanctuary_Statue", 1024, statue_objs, 1.8),
+    ]
+    if rootbound_objs:
+        groups.append(("Sanctuary_RootboundSaint", 2048, rootbound_objs, 2.0))
+    if statue_objs:
+        groups.append(("Sanctuary_Statue", 1024, statue_objs, 1.8))
+    groups.extend([
         ("Sanctuary_Cliffs", 1024, cliff_objs, 3.2),
         ("Sanctuary_RootsRubble", 1024, roots_rubble, 1.6),
         ("Sanctuary_SecondaryTrim", 1024, secondary, 2.6),
-    ]
+    ])
+    return groups
 
 
 def _inspect_glb(glb_path: str) -> Dict[str, object]:
@@ -245,7 +275,12 @@ def prepare_and_export(
     _clamp_subdivs(max_subdiv)
 
     water_obj = bpy.data.objects.get("Water_Flooded_Basin")
-    ao_hide = [water_obj] if water_obj else []
+    ao_hide = [o for o in (
+        water_obj,
+        bpy.data.objects.get("Collision_Terrace"),
+        bpy.data.objects.get("Collision_Stairs"),
+        bpy.data.objects.get("Collision_Pedestal"),
+    ) if o is not None]
 
     tmp_tex_dir = os.path.join(tempfile.gettempdir(), "echoes_sanctuary_bake")
     groups = _collect_atlas_groups()
@@ -254,7 +289,7 @@ def prepare_and_export(
         if not objs:
             continue
         res = max(256, int(round((base_res * bake_scale) / 64.0)) * 64)
-        ao_samples = 6 if atlas_name in ("Sanctuary_HeroArch", "Sanctuary_Statue") else 4
+        ao_samples = 6 if atlas_name in ("Sanctuary_HeroArch", "Sanctuary_RootboundSaint", "Sanctuary_Statue") else 4
         print(f"[ExportSanctuary] Baking atlas {atlas_name}: {len(objs)} objs @ {res}x{res}...", flush=True)
         pbr_bake.bake_pbr_atlas(
             atlas_name=atlas_name,
@@ -271,6 +306,7 @@ def prepare_and_export(
 
     _simplify_water_for_gltf()
     _simplify_silhouette_for_gltf()
+    _simplify_collision_for_gltf()
 
     # Purge unused procedural shaders/temp meshes so only baked atlases + water export.
     bpy.ops.outliner.orphans_purge(do_local_ids=True, do_linked_ids=True, do_recursive=True)

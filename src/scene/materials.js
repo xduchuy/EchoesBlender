@@ -314,6 +314,13 @@ export function createSanctuaryMaterialEnhancer() {
       const mname = mat.name || "";
       const oname = mesh.name || "";
 
+      if (oname.startsWith("Collision_")) {
+        mesh.visible = false;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+        return;
+      }
+
       const isWater = mname === "MAT_Water_Dark" || oname.includes("Water");
       const isDistant = oname.includes("Mountains_Distant") || mname === "MAT_Dark_Silhouette";
       const hasBakedAtlas = mname.startsWith("MAT_Baked_") || Boolean(mat.map);
@@ -337,11 +344,12 @@ export function createSanctuaryMaterialEnhancer() {
         if (mat.aoMap) {
           mat.aoMapIntensity = 0.85;
         }
-        mat.envMapIntensity = mname.includes("Statue")
-          ? 0.68
-          : mname.includes("HeroArch")
-            ? 0.62
-            : 0.54;
+        mat.envMapIntensity =
+          mname.includes("RootboundSaint") || mname.includes("Statue")
+            ? 0.68
+            : mname.includes("HeroArch")
+              ? 0.62
+              : 0.54;
         mat.needsUpdate = true;
         return;
       }

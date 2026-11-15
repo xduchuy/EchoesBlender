@@ -15,7 +15,12 @@ def _create_tracked_camera(
     col: bpy.types.Collection,
 ) -> bpy.types.Object:
     """Create a camera with a dedicated target empty and TRACK_TO constraint."""
-    cam_data = bpy.data.cameras.new(name)
+    for old_name in (name, f"{name}_Target"):
+        old_obj = bpy.data.objects.get(old_name)
+        if old_obj is not None:
+            bpy.data.objects.remove(old_obj, do_unlink=True)
+
+    cam_data = bpy.data.cameras.get(name) or bpy.data.cameras.new(name)
     cam_data.lens = cfg["lens"]
     cam_data.sensor_width = cfg["sensor_width"]
     cam_data.clip_start = 0.2

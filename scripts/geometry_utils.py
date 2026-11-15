@@ -51,6 +51,7 @@ def setup_collections() -> Dict[str, bpy.types.Collection]:
         "03_ARCHITECTURE",
         "04_COURTYARD",
         "05_STATUE",
+        "05_ROOTBOUND_SAINT",
         "06_WATER",
         "07_ROOTS",
         "08_RUBBLE",
@@ -73,6 +74,18 @@ def setup_collections() -> Dict[str, bpy.types.Collection]:
     ]
     for sub in arch_subs:
         cols[sub] = get_or_create_collection(sub, arch_parent)
+
+    saint_parent = cols["05_ROOTBOUND_SAINT"]
+    for s_sub in [
+        "SAINT_STATUE",
+        "SAINT_PEDESTAL",
+        "SAINT_STAIRS",
+        "SAINT_TERRACE",
+        "SAINT_ROOTS",
+        "SAINT_DEBRIS",
+        "SAINT_COLLISION",
+    ]:
+        cols[s_sub] = get_or_create_collection(s_sub, saint_parent)
 
     return cols
 
