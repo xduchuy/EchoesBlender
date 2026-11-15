@@ -24,9 +24,9 @@ export const CAMERA_PRESETS = {
   },
   statue: {
     label: "Statue",
-    position: [8.0, 7.5, 26.0],
-    target: [0.0, 9.0, -2.0],
-    fov: 30,
+    position: [3.5, 17.8, 25.8],
+    target: [0.0, 7.4, -2.0],
+    fov: 36,
   },
   causeway: {
     label: "Causeway",

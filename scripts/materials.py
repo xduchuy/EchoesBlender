@@ -152,23 +152,32 @@ def build_limestone_material(
     brick.offset = 0.5
     brick.squash = 1.0
     brick.inputs["Scale"].default_value = 1.15
-    brick.inputs["Mortar Size"].default_value = 0.014
+    brick.inputs["Mortar Size"].default_value = 0.014 if mortar_strength > 0.001 else 0.0
     brick.inputs["Mortar Smooth"].default_value = 0.25
     brick.inputs["Bias"].default_value = 0.0
     brick.inputs["Brick Width"].default_value = 1.25
     brick.inputs["Row Height"].default_value = 0.52
     brick.inputs["Color1"].default_value = color_a
-    brick.inputs["Color2"].default_value = color_b
+    brick.inputs["Color2"].default_value = color_b if mortar_strength > 0.001 else color_a
     brick.inputs["Mortar"].default_value = (0.045, 0.048, 0.042, 1.0)
     nt.links.new(brick_warp.outputs[1], brick.inputs["Vector"])
 
-    # Mix macro weathering across stone blocks
+    # Mix macro weathering across stone blocks (or monolithic limestone if mortar_strength == 0)
     mix_macro = nt.nodes.new("ShaderNodeMix")
     mix_macro.data_type = "RGBA"
     mix_macro.location = (-160, 120)
     mix_macro.inputs[7].default_value = shadow_col
     nt.links.new(noise_macro.outputs["Fac"], mix_macro.inputs["Factor"])
-    nt.links.new(brick.outputs["Color"], mix_macro.inputs[6])
+    if mortar_strength <= 0.001:
+        mix_mono = nt.nodes.new("ShaderNodeMix")
+        mix_mono.data_type = "RGBA"
+        mix_mono.location = (-340, 120)
+        mix_mono.inputs[6].default_value = color_a
+        mix_mono.inputs[7].default_value = color_b
+        nt.links.new(noise_med.outputs["Fac"], mix_mono.inputs["Factor"])
+        nt.links.new(mix_mono.outputs[2], mix_macro.inputs[6])
+    else:
+        nt.links.new(brick.outputs["Color"], mix_macro.inputs[6])
 
     # Subtle edge highlight using Pointiness
     ramp_point = nt.nodes.new("ShaderNodeValToRGB")
@@ -555,6 +564,109 @@ def build_bark_material(name: str = "MAT_Bark_Ancient") -> bpy.types.Material:
     return mat
 
 
+def build_rootbound_bark_material(name: str = "MAT_Rootbound_RootBark") -> bpy.types.Material:
+    """Build warm weathered ochre-brown & dark umber root bark with longitudinal grooves and moss."""
+    mat, nt, bsdf, _ = _new_material(name)
+
+    tex_coord = nt.nodes.new("ShaderNodeTexCoord")
+    tex_coord.location = (-1040, 0)
+
+    mapping = nt.nodes.new("ShaderNodeMapping")
+    mapping.location = (-840, 0)
+    mapping.inputs["Scale"].default_value = (1.6, 1.6, 6.2)
+    nt.links.new(tex_coord.outputs["Object"], mapping.inputs["Vector"])
+
+    noise_bark = nt.nodes.new("ShaderNodeTexNoise")
+    noise_bark.location = (-600, 120)
+    noise_bark.inputs["Scale"].default_value = 4.8
+    noise_bark.inputs["Detail"].default_value = 9.0
+    noise_bark.inputs["Roughness"].default_value = 0.74
+    noise_bark.inputs["Distortion"].default_value = 0.42
+    nt.links.new(mapping.outputs["Vector"], noise_bark.inputs["Vector"])
+
+    noise_fine = nt.nodes.new("ShaderNodeTexNoise")
+    noise_fine.location = (-600, -120)
+    noise_fine.inputs["Scale"].default_value = 18.0
+    noise_fine.inputs["Detail"].default_value = 5.0
+    noise_fine.inputs["Roughness"].default_value = 0.65
+    nt.links.new(mapping.outputs["Vector"], noise_fine.inputs["Vector"])
+
+    ramp = nt.nodes.new("ShaderNodeValToRGB")
+    ramp.location = (-320, 140)
+    ramp.color_ramp.elements[0].position = 0.24
+    ramp.color_ramp.elements[0].color = (0.042, 0.030, 0.018, 1.0)
+    ramp.color_ramp.elements[1].position = 0.78
+    ramp.color_ramp.elements[1].color = (0.215, 0.145, 0.072, 1.0)
+    nt.links.new(noise_bark.outputs["Fac"], ramp.inputs["Fac"])
+
+    geo = nt.nodes.new("ShaderNodeNewGeometry")
+    geo.location = (-840, 380)
+    sep_n = nt.nodes.new("ShaderNodeSeparateXYZ")
+    sep_n.location = (-620, 380)
+    nt.links.new(geo.outputs["Normal"], sep_n.inputs["Vector"])
+
+    sep_pos = nt.nodes.new("ShaderNodeSeparateXYZ")
+    sep_pos.location = (-620, 520)
+    nt.links.new(geo.outputs["Position"], sep_pos.inputs["Vector"])
+
+    moss_ramp = nt.nodes.new("ShaderNodeValToRGB")
+    moss_ramp.location = (-320, 380)
+    moss_ramp.color_ramp.elements[0].position = 0.52
+    moss_ramp.color_ramp.elements[0].color = (0.0, 0.0, 0.0, 1.0)
+    moss_ramp.color_ramp.elements[1].position = 0.88
+    moss_ramp.color_ramp.elements[1].color = (0.38, 0.38, 0.38, 1.0)
+    nt.links.new(sep_n.outputs["Z"], moss_ramp.inputs["Fac"])
+
+    mix_col = nt.nodes.new("ShaderNodeMix")
+    mix_col.data_type = "RGBA"
+    mix_col.location = (40, 180)
+    mix_col.inputs[7].default_value = (0.058, 0.082, 0.032, 1.0)
+    nt.links.new(moss_ramp.outputs["Color"], mix_col.inputs["Factor"])
+    nt.links.new(ramp.outputs["Color"], mix_col.inputs[6])
+
+    # Darken submerged/wet root tips near water (Z < 0.8m)
+    wet_map = nt.nodes.new("ShaderNodeMapRange")
+    wet_map.location = (-160, 500)
+    wet_map.clamp = True
+    wet_map.inputs["From Min"].default_value = -0.2
+    wet_map.inputs["From Max"].default_value = 0.9
+    wet_map.inputs["To Min"].default_value = 0.65
+    wet_map.inputs["To Max"].default_value = 0.0
+    nt.links.new(sep_pos.outputs["Z"], wet_map.inputs["Value"])
+
+    mix_wet = nt.nodes.new("ShaderNodeMix")
+    mix_wet.data_type = "RGBA"
+    mix_wet.location = (240, 180)
+    mix_wet.inputs[7].default_value = (0.022, 0.018, 0.012, 1.0)
+    nt.links.new(wet_map.outputs["Result"], mix_wet.inputs["Factor"])
+    nt.links.new(mix_col.outputs[2], mix_wet.inputs[6])
+    nt.links.new(mix_wet.outputs[2], bsdf.inputs["Base Color"])
+
+    mix_rough = nt.nodes.new("ShaderNodeMix")
+    mix_rough.data_type = "FLOAT"
+    mix_rough.location = (240, -20)
+    mix_rough.inputs[2].default_value = 0.80
+    mix_rough.inputs[3].default_value = 0.36
+    nt.links.new(wet_map.outputs["Result"], mix_rough.inputs["Factor"])
+    nt.links.new(mix_rough.outputs[0], bsdf.inputs["Roughness"])
+
+    bump_comb = nt.nodes.new("ShaderNodeMath")
+    bump_comb.operation = "MULTIPLY_ADD"
+    bump_comb.location = (-40, -140)
+    bump_comb.inputs[1].default_value = 0.35
+    nt.links.new(noise_fine.outputs["Fac"], bump_comb.inputs[0])
+    nt.links.new(noise_bark.outputs["Fac"], bump_comb.inputs[2])
+
+    bump = nt.nodes.new("ShaderNodeBump")
+    bump.location = (220, -180)
+    bump.inputs["Strength"].default_value = 0.48
+    bump.inputs["Distance"].default_value = 0.09
+    nt.links.new(bump_comb.outputs["Value"], bump.inputs["Height"])
+    nt.links.new(bump.outputs["Normal"], bsdf.inputs["Normal"])
+
+    return mat
+
+
 def build_water_material(name: str = "MAT_Water_Dark") -> bpy.types.Material:
     """Build calm, deep green-black reflective flooded basin water."""
     mat, nt, bsdf, out = _new_material(name)
@@ -878,6 +990,82 @@ def create_all_materials() -> Dict[str, bpy.types.Material]:
         color=(0.82, 0.84, 0.80, 1.0),
         anisotropy=0.55,
         is_uniform=True,
+    )
+
+    # Rootbound Saint V3 specialized PBR material suite
+    mats["MAT_Rootbound_StatueStone"] = build_limestone_material(
+        "MAT_Rootbound_StatueStone",
+        color_a=(0.255, 0.244, 0.198, 1.0),
+        color_b=(0.168, 0.166, 0.138, 1.0),
+        shadow_col=(0.052, 0.060, 0.050, 1.0),
+        moss_amount=0.38,
+        wet_height=1.4,
+        base_roughness=0.81,
+        bump_strength=0.22,
+        mortar_strength=0.0,
+    )
+    mats["MAT_Rootbound_PedestalStone"] = build_limestone_material(
+        "MAT_Rootbound_PedestalStone",
+        color_a=(0.220, 0.208, 0.168, 1.0),
+        color_b=(0.142, 0.140, 0.115, 1.0),
+        shadow_col=(0.045, 0.052, 0.044, 1.0),
+        moss_amount=0.46,
+        wet_height=2.2,
+        base_roughness=0.80,
+        bump_strength=0.28,
+        mortar_strength=0.22,
+    )
+    mats["MAT_Rootbound_StairStone"] = build_limestone_material(
+        "MAT_Rootbound_StairStone",
+        color_a=(0.238, 0.225, 0.184, 1.0),
+        color_b=(0.132, 0.138, 0.110, 1.0),
+        shadow_col=(0.048, 0.055, 0.046, 1.0),
+        moss_amount=0.48,
+        wet_height=1.8,
+        base_roughness=0.78,
+        bump_strength=0.30,
+        mortar_strength=0.26,
+    )
+    mats["MAT_Rootbound_Parapet"] = build_limestone_material(
+        "MAT_Rootbound_Parapet",
+        color_a=(0.215, 0.205, 0.166, 1.0),
+        color_b=(0.135, 0.138, 0.112, 1.0),
+        shadow_col=(0.046, 0.054, 0.045, 1.0),
+        moss_amount=0.44,
+        wet_height=1.9,
+        base_roughness=0.83,
+        bump_strength=0.30,
+        mortar_strength=0.30,
+    )
+    mats["MAT_Rootbound_WetStone"] = build_limestone_material(
+        "MAT_Rootbound_WetStone",
+        color_a=(0.095, 0.102, 0.086, 1.0),
+        color_b=(0.058, 0.066, 0.055, 1.0),
+        shadow_col=(0.028, 0.034, 0.028, 1.0),
+        moss_amount=0.54,
+        wet_height=3.6,
+        base_roughness=0.38,
+        bump_strength=0.32,
+        mortar_strength=0.28,
+    )
+    mats["MAT_Rootbound_Moss"] = build_simple_ground_material(
+        "MAT_Rootbound_Moss",
+        (0.082, 0.118, 0.038, 1.0),
+        (0.026, 0.044, 0.018, 1.0),
+        roughness=0.92,
+        bump_strength=0.46,
+    )
+    mats["MAT_Rootbound_RootBark"] = build_rootbound_bark_material("MAT_Rootbound_RootBark")
+    mats["MAT_Rootbound_Rubble"] = build_limestone_material(
+        "MAT_Rootbound_Rubble",
+        color_a=(0.158, 0.152, 0.126, 1.0),
+        color_b=(0.085, 0.092, 0.076, 1.0),
+        shadow_col=(0.036, 0.042, 0.036, 1.0),
+        moss_amount=0.48,
+        wet_height=2.5,
+        base_roughness=0.72,
+        bump_strength=0.34,
+        mortar_strength=0.18,
     )
 
     return mats

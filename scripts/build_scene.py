@@ -21,11 +21,12 @@ from cameras import (
     setup_cinematic_animation,
     setup_compositor_and_color_management,
 )
-from config import GEOMETRY_OVERRIDES, QUALITY_PRESETS
+from config import GEOMETRY_OVERRIDES, LAYOUT, QUALITY_PRESETS
 from geometry_utils import create_control_empty, reset_scene, setup_collections
 from gothic_architecture import build_all_architecture
 from lighting import setup_lighting
 from materials import create_all_materials
+from rootbound_saint import build_rootbound_saint, validate_rootbound_saint
 from roots import build_all_roots
 from statue import build_central_statue
 from terrain import (
@@ -197,8 +198,17 @@ def build_and_render() -> int:
     print("[DrownedSanctuary] 3/9 Building Gothic sanctuary architecture...")
     build_all_architecture(cols, mats, preset=geom_preset)
 
-    print("[DrownedSanctuary] 4/9 Sculpting central monumental statue...")
-    build_central_statue(cols, mats, subsurf_level=qcfg["subsurf_level"])
+    monument_mode = LAYOUT.get("monument_mode", "ROOTBOUND_SAINT")
+    if monument_mode == "ROOTBOUND_SAINT":
+        print("[DrownedSanctuary] 4/9 Building The Rootbound Saint monument...")
+        build_rootbound_saint(cols, mats, subsurf_level=qcfg["subsurf_level"])
+        val_saint = validate_rootbound_saint()
+        print(f"[DrownedSanctuary] Rootbound Saint validation: {val_saint}")
+        if not val_saint.get("passed"):
+            raise RuntimeError(f"Rootbound Saint validation failed: {val_saint}")
+    else:
+        print("[DrownedSanctuary] 4/9 Sculpting central legacy monumental statue...")
+        build_central_statue(cols, mats, subsurf_level=qcfg["subsurf_level"])
 
     print("[DrownedSanctuary] 5/9 Building flooded courtyard & diagonal causeway...")
     build_courtyard_and_causeway(cols, mats)

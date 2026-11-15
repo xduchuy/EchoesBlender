@@ -253,12 +253,52 @@ export class KnightCharacter {
     this.groundMeshes = [];
     this.solidMeshes = [];
 
+    const walkableCollision = new Set(["Collision_Terrace", "Collision_Stairs"]);
+    const solidWallNames = new Set(["Terrace_OuterWall", "Terrace_Balustrades"]);
+    const decorativeSaintPrefixes = ["Saint_", "Root_"];
+    const decorativeSaintExact = new Set([
+      "Pedestal_Base",
+      "Pedestal_Panels",
+      "Pedestal_Cornices",
+      "Stairs_Left",
+      "Stairs_Right",
+      "Stairs_Landings",
+      "Terrace_Floor",
+      "Rubble",
+      "Broken_Stone",
+      "Fallen_Parapets",
+    ]);
+
     sanctuaryRoot.traverse((child) => {
       if (!child.isMesh) return;
       const name = child.name || "";
 
       if (name === "Causeway_Scale_Figure") {
         child.visible = false;
+        return;
+      }
+
+      if (walkableCollision.has(name)) {
+        child.visible = false;
+        this.groundMeshes.push(child);
+        return;
+      }
+
+      if (name === "Collision_Pedestal") {
+        child.visible = false;
+        this.solidMeshes.push(child);
+        return;
+      }
+
+      if (solidWallNames.has(name)) {
+        this.solidMeshes.push(child);
+        return;
+      }
+
+      if (
+        decorativeSaintExact.has(name) ||
+        decorativeSaintPrefixes.some((p) => name.startsWith(p))
+      ) {
         return;
       }
 

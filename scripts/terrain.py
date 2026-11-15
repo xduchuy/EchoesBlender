@@ -345,26 +345,30 @@ def build_courtyard_and_causeway(
             bevel_width=0.04,
         )
 
-    # Central statue island platform
-    n_isl = 24
-    ir = ccfg["island_radius"]
-    for i in range(n_isl):
-        am = (i / n_isl) * math.tau
-        px = cx + (ir * 0.72) * math.cos(am)
-        py = cy + (ir * 0.72) * math.sin(am)
-        z_top = ccfg["island_height"] + rng.uniform(-0.12, 0.06)
-        add_box_to_bmesh(
-            bm_ring,
-            (px, py, (z_top - 1.5) * 0.5),
-            (1.6, 2.2, z_top + 1.5),
-            rot_euler=(0.0, 0.0, am),
-            bevel_width=0.05,
-        )
+    is_rootbound = LAYOUT.get("monument_mode") == "ROOTBOUND_SAINT"
 
-    # Submerged courtyard flagstones visible just beneath shallow water
+    # Central statue island platform (legacy V1/V2 only — replaced cleanly by Rootbound Saint complex)
+    if not is_rootbound:
+        n_isl = 24
+        ir = ccfg["island_radius"]
+        for i in range(n_isl):
+            am = (i / n_isl) * math.tau
+            px = cx + (ir * 0.72) * math.cos(am)
+            py = cy + (ir * 0.72) * math.sin(am)
+            z_top = ccfg["island_height"] + rng.uniform(-0.12, 0.06)
+            add_box_to_bmesh(
+                bm_ring,
+                (px, py, (z_top - 1.5) * 0.5),
+                (1.6, 2.2, z_top + 1.5),
+                rot_euler=(0.0, 0.0, am),
+                bevel_width=0.05,
+            )
+
+    # Submerged courtyard flagstones visible just beneath shallow water (outside Rootbound Saint terrace curb)
+    r_flag_min = 8.55 if is_rootbound else 4.5
     for _ in range(75):
         a = rng.uniform(0.0, math.tau)
-        r = rng.uniform(4.5, ring_r - 1.2)
+        r = rng.uniform(r_flag_min, ring_r - 1.2)
         px = cx + r * math.cos(a)
         py = cy + r * math.sin(a)
         pz = rng.uniform(-0.32, 0.04)
@@ -379,10 +383,10 @@ def build_courtyard_and_causeway(
     apply_coherent_stone_weathering(bm_ring, amp=0.035, freq=0.6)
     objs.append(create_mesh_object("Courtyard_Stone_Plaza", bm_ring, col, mat=mats["MAT_Limestone_Wet"], sharp_angle_deg=42.0))
 
-    # 2. Foreground Diagonal Causeway (runs from Y=-76 to Y=-11.4 along X=0)
+    # 2. Foreground Diagonal Causeway (extends into Rootbound Saint terrace threshold in V3 mode)
     cw_cfg = LAYOUT["causeway"]
     y_start = cw_cfg["start_xy"][1]
-    y_end = cw_cfg["end_xy"][1]
+    y_end = -5.65 if is_rootbound else cw_cfg["end_xy"][1]
     cw_w = cw_cfg["width"]
     bm_cw = bmesh.new()
 
@@ -400,9 +404,13 @@ def build_courtyard_and_causeway(
     while cur_y < y_end:
         step_y = rng.uniform(1.15, 1.85)
         ym = cur_y + step_y * 0.5
-        # Shallow water dip toward courtyard junction
+        # Shallow water dip toward courtyard junction; meets terrace threshold cleanly near Y=-6m
         dip = 0.34 * math.exp(-((ym + 25.0) / 9.5) ** 2)
-        top_z = cw_cfg["top_z"] - dip + rng.uniform(-0.04, 0.04)
+        if is_rootbound and ym > -11.4:
+            t_bridge = min(1.0, max(0.0, (ym + 11.4) / 5.75))
+            top_z = cw_cfg["top_z"] * (1.0 - t_bridge) + 0.16 * t_bridge + rng.uniform(-0.02, 0.02)
+        else:
+            top_z = cw_cfg["top_z"] - dip + rng.uniform(-0.04, 0.04)
 
         # Two or three slabs across width
         n_across = rng.choice([2, 3])
@@ -659,11 +667,15 @@ def build_flooded_rubble_and_reeds(
         (-2.5, -38.0, 3.0),
         (2.5, -28.0, 3.0),
     ]
+    is_rootbound = LAYOUT.get("monument_mode") == "ROOTBOUND_SAINT"
     n_tufts = max(4, int(round(12 * rubble_scale)))
     for zi, (zx, zy, zrad) in enumerate(reed_zones):
         for ti in range(n_tufts):
             px = zx + rng.uniform(-zrad, zrad)
             py = zy + rng.uniform(-zrad, zrad)
+            if is_rootbound:
+                if math.hypot(px, py - 2.0) < 8.6 or (abs(px) < 2.35 and py > -12.5):
+                    continue
             pz = rng.uniform(-0.2, 0.05)
             sc = rng.uniform(0.8, 1.5)
             objs.append(

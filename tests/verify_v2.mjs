@@ -64,7 +64,7 @@ test("Sanctuary V2 GLB preserves node contract, Draco, WebP textures, and PBR ba
 
   const expectedBaked = [
     "MAT_Baked_Sanctuary_HeroArch",
-    "MAT_Baked_Sanctuary_Statue",
+    "MAT_Baked_Sanctuary_RootboundSaint",
     "MAT_Baked_Sanctuary_Cliffs",
     "MAT_Baked_Sanctuary_RootsRubble",
     "MAT_Baked_Sanctuary_SecondaryTrim",
@@ -77,6 +77,60 @@ test("Sanctuary V2 GLB preserves node contract, Draco, WebP textures, and PBR ba
     assert.ok(mat.normalTexture, `${matName} missing normalTexture`);
     assert.ok(mat.occlusionTexture, `${matName} missing occlusionTexture`);
   }
+});
+
+test("Rootbound Saint V3 isolated and integrated GLBs contain all 25 monument meshes and collision layers", () => {
+  const visualNodes = [
+    "Saint_Head",
+    "Saint_Face",
+    "Saint_Hood",
+    "Saint_Torso",
+    "Saint_Hands",
+    "Saint_Robe",
+    "Saint_Halo",
+    "Pedestal_Base",
+    "Pedestal_Panels",
+    "Pedestal_Cornices",
+    "Stairs_Left",
+    "Stairs_Right",
+    "Stairs_Landings",
+    "Terrace_Floor",
+    "Terrace_OuterWall",
+    "Terrace_Balustrades",
+    "Root_Primary",
+    "Root_Secondary",
+    "Root_Tendrils",
+    "Rubble",
+    "Broken_Stone",
+    "Fallen_Parapets",
+  ];
+  const collisionNodes = ["Collision_Terrace", "Collision_Stairs", "Collision_Pedestal"];
+
+  // 1. Verify integrated Sanctuary GLB includes all 25 Rootbound Saint nodes and drops legacy statue
+  const sanctuary = parseGlb("public/models/drowned_sanctuary.glb");
+  const sancNames = new Set((sanctuary.gltf.nodes || []).map((n) => n.name));
+  for (const req of [...visualNodes, ...collisionNodes]) {
+    assert.ok(sancNames.has(req), `Integrated Sanctuary GLB missing V3 node: ${req}`);
+  }
+  assert.ok(!sancNames.has("Statue_Central_Figure"), "Legacy Statue_Central_Figure must be omitted in ROOTBOUND_SAINT mode");
+
+  // 2. Verify standalone isolated Rootbound Saint GLB
+  const iso = parseGlb("output/rootbound_saint/rootbound_saint.glb");
+  assert.ok(iso.bytes > 50 * 1024, `Isolated Rootbound Saint GLB unexpectedly small: ${iso.bytes} bytes`);
+  assert.ok(
+    (iso.gltf.extensionsRequired || []).includes("KHR_draco_mesh_compression"),
+    "Isolated Rootbound Saint GLB must use Draco compression",
+  );
+  const isoNames = new Set((iso.gltf.nodes || []).map((n) => n.name));
+  for (const req of visualNodes) {
+    assert.ok(isoNames.has(req), `Isolated Rootbound Saint GLB missing node: ${req}`);
+  }
+  const isoMats = new Map((iso.gltf.materials || []).map((m) => [m.name, m]));
+  const isoBaked = isoMats.get("MAT_Baked_Sanctuary_RootboundSaint");
+  assert.ok(isoBaked, "Isolated GLB missing MAT_Baked_Sanctuary_RootboundSaint");
+  assert.ok(isoBaked.pbrMetallicRoughness?.baseColorTexture, "Isolated GLB missing baseColorTexture");
+  assert.ok(isoBaked.normalTexture, "Isolated GLB missing normalTexture");
+  assert.ok(isoBaked.occlusionTexture, "Isolated GLB missing occlusionTexture");
 });
 
 test("Forgotten Knight V2 GLB includes rig, 9 animations, lantern/helm nodes, and baked PBR atlases", () => {
