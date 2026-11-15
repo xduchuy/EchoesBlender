@@ -107,3 +107,10 @@ export const LIGHTING_MOODS = [
     bloomStrength: 0.2,
   },
 ];
+
+export const MODEL_ASSET_VERSION = "v3-rootbound-saint";
+
+export const MODEL_URLS = {
+  sanctuary: `/models/drowned_sanctuary.glb?v=${MODEL_ASSET_VERSION}`,
+  knight: `/models/forgotten_knight.glb?v=${MODEL_ASSET_VERSION}`,
+};

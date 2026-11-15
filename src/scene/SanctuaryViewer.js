@@ -8,7 +8,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 
-import { CAMERA_PRESETS, LIGHTING_MOODS } from "./config.js";
+import { CAMERA_PRESETS, LIGHTING_MOODS, MODEL_URLS } from "./config.js";
 import { createSanctuaryMaterialEnhancer } from "./materials.js";
 import { createAtmosphereSystem } from "./atmosphere.js";
 import { KnightCharacter } from "./KnightCharacter.js";
@@ -363,7 +363,7 @@ export class SanctuaryViewer {
     Object.assign(this.virtualInput, partial);
   }
 
-  async loadModel(url = "/models/drowned_sanctuary.glb", knightUrl = "/models/forgotten_knight.glb") {
+  async loadModel(url = MODEL_URLS.sanctuary, knightUrl = MODEL_URLS.knight) {
     this.applyMood(0);
 
     const dracoLoader = new DRACOLoader();

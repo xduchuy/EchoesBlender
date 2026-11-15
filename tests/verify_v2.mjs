@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { CAMERA_PRESETS, LIGHTING_MOODS } from "../src/scene/config.js";
+import { CAMERA_PRESETS, LIGHTING_MOODS, MODEL_URLS } from "../src/scene/config.js";
 import {
   QUALITY_ORDER,
   QUALITY_PRESETS,
@@ -222,6 +222,8 @@ test("Quality presets, GPU tier detection, and PerfMonitor behave deterministica
 });
 
 test("Viewer config preserves all camera presets and lighting moods", () => {
+  assert.match(MODEL_URLS.sanctuary, /^\/models\/drowned_sanctuary\.glb\?v=.+/);
+  assert.match(MODEL_URLS.knight, /^\/models\/forgotten_knight\.glb\?v=.+/);
   for (const camId of ["hero", "knight", "arch", "statue", "causeway"]) {
     assert.ok(CAMERA_PRESETS[camId], `Missing camera preset: ${camId}`);
   }
@@ -241,4 +243,8 @@ test("Web deployment assets and Vite entrypoints are present", () => {
   ]) {
     assert.ok(fs.existsSync(path.join(ROOT, rel)), `Missing web asset/config: ${rel}`);
   }
+  const vercelCfg = JSON.parse(fs.readFileSync(path.join(ROOT, "vercel.json"), "utf8"));
+  const modelHeader = (vercelCfg.headers || []).find((h) => h.source === "/models/(.*)");
+  const cacheVal = modelHeader?.headers?.find((h) => h.key.toLowerCase() === "cache-control")?.value || "";
+  assert.ok(!cacheVal.includes("immutable"), `Unhashed /models/* must not use immutable Cache-Control: ${cacheVal}`);
 });

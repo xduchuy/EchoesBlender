@@ -1,5 +1,6 @@
 import "./styles/main.css";
 import { SanctuaryViewer } from "./scene/SanctuaryViewer.js";
+import { MODEL_URLS } from "./scene/config.js";
 
 const canvas = document.getElementById("sanctuary-canvas");
 const loaderEl = document.getElementById("loader");
@@ -257,7 +258,7 @@ if (touchBtnSprint) {
   });
 }
 
-viewer.loadModel("/models/drowned_sanctuary.glb").catch((err) => {
+viewer.loadModel(MODEL_URLS.sanctuary, MODEL_URLS.knight).catch((err) => {
   console.error("Failed to load sanctuary GLB:", err);
   loaderStatus.textContent = `Error loading 3D model: ${err?.message || "Unknown error"}`;
 });
